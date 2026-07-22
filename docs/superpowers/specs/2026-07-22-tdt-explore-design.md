@@ -17,7 +17,7 @@ pyqtgraph parameter trees seeded from Hydra config presets.
 - Two-part GUI: one **Control Window** per tank; one **Block Window** per opened block.
 - Modular composition: attach one or more ephyviewer viewers to each data store.
 - Config-driven defaults (viewer params, store roles, schemas, stim formatters) via Hydra.
-- Handle real-world alignment concerns: per-store sample **delays**, probe-native channel
+- Handle real-world alignment concerns: per-store **delays** (in ms), probe-native channel
   **reordering**, and stim-metadata → event-**label** formatting.
 - Lazy loading so multi-GB blocks list instantly and load only what is viewed.
 - Per-tank session persistence without polluting raw data directories.
@@ -163,7 +163,8 @@ No hardcoded hyperparameters: all viewer defaults, patterns, and schemas live in
 - **Global group:** preset selector; tank dir (readonly); block selector.
 - **Per-store group** (one per store in the selected block):
   - readonly info: role, tdt type, fs, channels, duration.
-  - `delay_samples` (int; 0 = time reference).
+  - `delay_ms` (float ms; 0 = time reference). Unit-agnostic so it applies to every store
+    type without needing a sample rate.
   - **timeseries only:** `probe_file` (file picker, optional) + `reorder` (bool).
   - **stim/event only:** `schema` (dropdown from `schema/*`; else placeholder `col00…`
     read-only) + `formatter` (dropdown from formatter registry).
@@ -176,7 +177,7 @@ No hardcoded hyperparameters: all viewer defaults, patterns, and schemas live in
 `builders.build(role, viewer_type, raw_store, attach_cfg) -> ephyviewer viewer`. Registry
 keyed `(role, viewer_type)`. Each builder:
 
-1. **Delay:** shift `t_start` by `delay_samples / fs` seconds.
+1. **Delay:** shift `t_start` by `delay_ms / 1000` seconds (same for all store types).
 2. **Probe (timeseries + probe set):** load probe; permute channels into contact order —
    `data_reordered = data[device_channel_indices, :]` (source expects samples × channels, so
    transpose as in the reference) — and set channel names from `brain_region` + `contact_id`.

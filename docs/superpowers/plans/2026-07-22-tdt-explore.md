@@ -812,8 +812,8 @@ git commit -m "feat: generic and IZ-voice stim formatters"
 
 **Interfaces:**
 - Consumes: `ProbeMap`, `reorder_channels` (Task 4).
-- Produces: `Attachment` dataclass `{viewer_type: str, delay_samples: int = 0, probe_path: Path | None = None, params: dict = {}}`.
-- Produces: `apply_delay(t_start: float, delay_samples: int, fs: float) -> float`.
+- Produces: `Attachment` dataclass `{viewer_type: str, delay_ms: float = 0.0, probe_path: Path | None = None, params: dict = {}}`.
+- Produces: `apply_delay(t_start: float, delay_ms: float) -> float` (adds `delay_ms / 1000` seconds; unit-agnostic, works for every store type since no `fs` is needed).
 - Produces: `build_analog_source(store: object, attachment: Attachment, probe: ProbeMap | None) -> InMemoryAnalogSignalSource`. `store` must expose `.data (n_channels, n_samples)`, `.fs`, `.start_time`.
 
 - [ ] **Step 1: Write the failing test**
@@ -841,13 +841,13 @@ class FakeStream:
     start_time: float
 
 
-def test_apply_delay_converts_samples_to_seconds() -> None:
-    assert apply_delay(1.0, 20, 1000.0) == 1.02
+def test_apply_delay_converts_ms_to_seconds() -> None:
+    assert apply_delay(1.0, 20.0) == 1.02
 
 
 def test_build_analog_source_shapes_and_tstart() -> None:
     store = FakeStream(data=np.zeros((4, 100)), fs=1000.0, start_time=0.5)
-    src = build_analog_source(store, Attachment("trace", delay_samples=10), probe=None)
+    src = build_analog_source(store, Attachment("trace", delay_ms=10.0), probe=None)
     assert src.signals.shape == (100, 4)  # samples x channels
     assert src.t_start == 0.51
 
@@ -885,20 +885,28 @@ class Attachment:
     """One viewer attached to one store, with alignment options.
 
     :param viewer_type: Viewer key (e.g. ``"trace"``).
-    :param delay_samples: Samples added to the store's start time.
+    :param delay_ms: Milliseconds added to the store's start time (any store type).
     :param probe_path: Optional probe file for reorder (timeseries only).
     :param params: Viewer parameter overrides.
     """
 
     viewer_type: str
-    delay_samples: int = 0
+    delay_ms: float = 0.0
     probe_path: Path | None = None
     params: dict = field(default_factory=dict)
 
 
-def apply_delay(t_start: float, delay_samples: int, fs: float) -> float:
-    """Shift ``t_start`` by ``delay_samples / fs`` seconds."""
-    return float(t_start) + delay_samples / fs
+def apply_delay(t_start: float, delay_ms: float) -> float:
+    """Shift ``t_start`` by ``delay_ms`` milliseconds.
+
+    Unit-agnostic — needs no sample rate, so it applies uniformly to streams,
+    events, epochs, and snips.
+
+    :param t_start: Original start time in seconds.
+    :param delay_ms: Delay in milliseconds (may be negative).
+    :returns: The shifted start time in seconds.
+    """
+    return float(t_start) + delay_ms / 1000.0
 
 
 def build_analog_source(
@@ -920,7 +928,7 @@ def build_analog_source(
     else:
         names = [f"ch{k:0>2d}" for k in range(data.shape[0])]
     signals = np.ascontiguousarray(data.T)  # samples x channels
-    t_start = apply_delay(store.start_time, attachment.delay_samples, fs)  # type: ignore[attr-defined]
+    t_start = apply_delay(store.start_time, attachment.delay_ms)  # type: ignore[attr-defined]
     return InMemoryAnalogSignalSource(signals, fs, t_start=t_start, channel_names=names)
 ```
 
@@ -958,12 +966,15 @@ Append to `tests/test_builders.py`:
 ```python
 from dataclasses import dataclass as _dc
 
+import pytest
+
 from tdt_ephyviewer_explorer.builders import (
     build_epoch_source,
     build_event_source,
     build_spike_source,
     scalar_rows,
 )
+from tdt_ephyviewer_explorer.formatters.base import GenericFormatter
 from tdt_ephyviewer_explorer.formatters.iz_voice import IZVoiceFormatter
 
 
@@ -979,17 +990,36 @@ def test_scalar_rows_zips_columns() -> None:
     assert rows == [{"chanA": 5, "ampA": 10}, {"chanA": 6, "ampA": 20}]
 
 
-def test_build_event_source_uses_formatter_and_delay() -> None:
+def test_scalar_rows_reshapes_1d_data() -> None:
+    store = FakeScalar(data=np.array([5, 6, 7]), ts=np.array([0.0, 1.0, 2.0]))
+    rows = scalar_rows(store, ["chanA"])
+    assert rows == [{"chanA": 5}, {"chanA": 6}, {"chanA": 7}]
+
+
+def test_scalar_rows_column_mismatch_raises() -> None:
+    store = FakeScalar(data=np.array([[5, 6], [10, 20]]), ts=np.array([0.0, 1.0]))
+    with pytest.raises(ValueError, match="columns"):
+        scalar_rows(store, ["chanA"])
+
+
+def test_build_event_source_uses_formatter_and_applies_delay() -> None:
     store = FakeScalar(
-        data=np.array([[5, 0], [0, 0], [0, 0], [0, 0],  # chanA, chanB, chanC, chanD
-                       [100, 0], [0, 0], [0, 0], [0, 0]]),  # ampA..ampD
+        data=np.array([[5], [0], [0], [0],   # chanA, chanB, chanC, chanD
+                       [100], [0], [0], [0]]),  # ampA..ampD
         ts=np.array([2.0]),
     )
     cols = ["chanA", "chanB", "chanC", "chanD", "ampA", "ampB", "ampC", "ampD"]
-    src = build_event_source(store, cols, IZVoiceFormatter(), Attachment("eventlist"))
+    # 1000 ms delay -> +1.0 s.
+    src = build_event_source(store, cols, IZVoiceFormatter(), Attachment("eventlist", delay_ms=1000.0))
     ev = src.all[0]  # ephyviewer stores channel dicts under `.all`
     assert ev["label"][0] == "chA: 05 100 uA"
-    assert ev["time"][0] == 2.0
+    assert ev["time"][0] == 3.0
+
+
+def test_build_event_source_ts_length_mismatch_raises() -> None:
+    store = FakeScalar(data=np.array([[5, 6]]), ts=np.array([2.0]))  # 2 events, 1 ts
+    with pytest.raises(ValueError, match="timestamps"):
+        build_event_source(store, ["chanA"], GenericFormatter(["chanA"]), Attachment("eventlist"))
 
 
 @_dc
@@ -998,12 +1028,12 @@ class FakeEpoc:
     offset: np.ndarray
 
 
-def test_build_epoch_source_computes_duration() -> None:
+def test_build_epoch_source_computes_duration_and_applies_delay() -> None:
     store = FakeEpoc(onset=np.array([1.0, 3.0]), offset=np.array([1.5, 3.25]))
-    src = build_epoch_source(store, Attachment("epoch"))
+    src = build_epoch_source(store, Attachment("epoch", delay_ms=500.0))  # +0.5 s
     ep = src.all[0]
-    assert list(ep["time"]) == [1.0, 3.0]
-    assert list(np.round(ep["duration"], 2)) == [0.5, 0.25]
+    assert list(ep["time"]) == [1.5, 3.5]
+    assert list(np.round(ep["duration"], 2)) == [0.5, 0.25]  # duration is delay-invariant
 
 
 @_dc
@@ -1022,6 +1052,18 @@ def test_build_spike_source_groups_by_chan_sortcode() -> None:
     src = build_spike_source(store, Attachment("spiketrain"))
     names = sorted(s["name"] for s in src.all)
     assert names == ["ch01 u01", "ch02 u01"]
+
+
+@_dc
+class FakeBareSpikes:
+    ts: np.ndarray
+
+
+def test_build_spike_source_single_train_when_ungrouped() -> None:
+    store = FakeBareSpikes(ts=np.array([0.1, 0.2]))
+    src = build_spike_source(store, Attachment("spiketrain"))
+    assert len(src.all) == 1
+    assert list(src.all[0]["time"]) == [0.1, 0.2]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1068,15 +1110,17 @@ def build_event_source(
     :param store: Scalar store exposing ``data`` and ``ts``.
     :param columns: Column schema for the param rows.
     :param formatter: Row-to-label formatter.
-    :param attachment: Alignment options (delay in samples; requires ``fs`` on the store
-        for conversion, else delay is treated as seconds when ``fs`` is absent).
+    :param attachment: Alignment options; ``delay_ms`` shifts every timestamp.
+    :raises ValueError: If the number of timestamps does not match the number of events.
     """
     rows = scalar_rows(store, columns)
-    labels = np.array([formatter.format_row(r) for r in rows])
     ts = np.asarray(store.ts, dtype=float)  # type: ignore[attr-defined]
-    fs = getattr(store, "fs", None)
-    if attachment.delay_samples and fs:
-        ts = ts + attachment.delay_samples / float(fs)
+    if ts.shape[0] != len(rows):
+        raise ValueError(
+            f"store has {ts.shape[0]} timestamps but {len(rows)} events"
+        )
+    labels = np.array([formatter.format_row(r) for r in rows])
+    ts = ts + attachment.delay_ms / 1000.0
     return InMemoryEventSource(
         all_events=[{"name": attachment.viewer_type, "time": ts, "label": labels}]
     )
@@ -1086,10 +1130,12 @@ def build_epoch_source(store: object, attachment: Attachment) -> InMemoryEpochSo
     """Build an epoch source from an epoc store (onset/offset).
 
     :param store: Epoc store exposing ``onset`` and ``offset``.
-    :param attachment: Alignment options.
+    :param attachment: Alignment options; ``delay_ms`` shifts onset and offset equally
+        (so duration is unchanged).
     """
-    onset = np.asarray(store.onset, dtype=float)  # type: ignore[attr-defined]
-    offset = np.asarray(store.offset, dtype=float)  # type: ignore[attr-defined]
+    delay_s = attachment.delay_ms / 1000.0
+    onset = np.asarray(store.onset, dtype=float) + delay_s  # type: ignore[attr-defined]
+    offset = np.asarray(store.offset, dtype=float) + delay_s  # type: ignore[attr-defined]
     duration = offset - onset
     labels = np.array([str(i) for i in range(onset.size)])
     return InMemoryEpochSource(
@@ -1110,10 +1156,10 @@ def build_spike_source(
     present, all timestamps form a single train.
 
     :param store: Store exposing ``ts`` and optionally ``chan``/``sortcode``.
-    :param attachment: Alignment options.
+    :param attachment: Alignment options; ``delay_ms`` shifts every timestamp.
     :param group_fields: Ordered grouping fields to try.
     """
-    ts = np.asarray(store.ts, dtype=float)  # type: ignore[attr-defined]
+    ts = np.asarray(store.ts, dtype=float) + attachment.delay_ms / 1000.0  # type: ignore[attr-defined]
     present = [f for f in group_fields if getattr(store, f, None) is not None]
     if not present:
         return InMemorySpikeSource(all_spikes=[{"name": attachment.viewer_type, "time": ts}])
@@ -1169,8 +1215,8 @@ def test_session_round_trip(tmp_path: Path) -> None:
     session = Session(
         block="rRew03-1",
         attachments={
-            "Wav1": [{"viewer_type": "trace", "delay_samples": 0, "probe_path": None, "params": {}}],
-            "eS1p": [{"viewer_type": "eventlist", "delay_samples": 20, "probe_path": None, "params": {}}],
+            "Wav1": [{"viewer_type": "trace", "delay_ms": 0.0, "probe_path": None, "params": {}}],
+            "eS1p": [{"viewer_type": "eventlist", "delay_ms": 20.0, "probe_path": None, "params": {}}],
         },
     )
     out = save_session(session, tmp_path, "mysession")
@@ -1484,7 +1530,7 @@ def _attachment_from_dict(d: dict) -> Attachment:
     probe = d.get("probe_path")
     return Attachment(
         viewer_type=d["viewer_type"],
-        delay_samples=int(d.get("delay_samples", 0)),
+        delay_ms=float(d.get("delay_ms", 0.0)),
         probe_path=Path(probe) if probe else None,
         params=dict(d.get("params", {})),
     )
@@ -1568,7 +1614,7 @@ def test_build_param_tree_spec_makes_group_per_store() -> None:
     )
     assert spec[0]["name"] == "Wav1"
     child_names = {c["name"] for c in spec[0]["children"]}
-    assert "delay_samples" in child_names
+    assert "delay_ms" in child_names
     assert "probe_file" in child_names  # timeseries only
     viewers_group = next(c for c in spec[0]["children"] if c["name"] == "Viewers")
     assert {c["name"] for c in viewers_group["children"]} == {"trace", "timefreq"}
@@ -1614,7 +1660,7 @@ def build_param_tree_spec(
             {"name": "role", "type": "str", "value": rs.role, "readonly": True},
             {"name": "fs", "type": "float", "value": rs.info.fs or 0.0, "readonly": True},
             {"name": "channels", "type": "int", "value": rs.info.n_channels or 0, "readonly": True},
-            {"name": "delay_samples", "type": "int", "value": 0},
+            {"name": "delay_ms", "type": "float", "value": 0.0},
         ]
         if rs.role == "timeseries":
             children.append({"name": "probe_file", "type": "str", "value": ""})
@@ -1647,7 +1693,7 @@ def spec_to_session(block: str, param_state: dict) -> Session:
     """Convert a saved parametertree state into a :class:`Session`.
 
     :param block: Block name.
-    :param param_state: ``{store_name: {"delay_samples": int, "probe_file": str,
+    :param param_state: ``{store_name: {"delay_ms": float, "probe_file": str,
         "Viewers": {viewer_type: {"_enabled": bool, **params}}}}``.
     :returns: The composition session (only enabled viewers included).
     """
@@ -1663,7 +1709,7 @@ def spec_to_session(block: str, param_state: dict) -> Session:
             entries.append(
                 {
                     "viewer_type": vt,
-                    "delay_samples": int(state.get("delay_samples", 0)),
+                    "delay_ms": float(state.get("delay_ms", 0.0)),
                     "probe_path": probe if state.get("reorder") else None,
                     "params": params,
                 }
@@ -1758,7 +1804,7 @@ def test_spec_to_session_includes_only_enabled() -> None:
 
     state = {
         "Wav1": {
-            "delay_samples": 5,
+            "delay_ms": 5.0,
             "probe_file": "",
             "reorder": False,
             "Viewers": {"trace": {"_enabled": True, "display_labels": True},
@@ -1768,7 +1814,7 @@ def test_spec_to_session_includes_only_enabled() -> None:
     session = spec_to_session("blk", state)
     assert list(session.attachments) == ["Wav1"]
     assert session.attachments["Wav1"][0]["viewer_type"] == "trace"
-    assert session.attachments["Wav1"][0]["delay_samples"] == 5
+    assert session.attachments["Wav1"][0]["delay_ms"] == 5.0
 ```
 
 - [ ] **Step 7: Run tests + commit**
@@ -1930,8 +1976,8 @@ Add these methods to `ControlWindow` (imports at top:
                             for p in v.children():
                                 if p.name() in entry["params"]:
                                     p.setValue(entry["params"][p.name()])
-                elif child.name() == "delay_samples" and entries:
-                    child.setValue(entries[0]["delay_samples"])
+                elif child.name() == "delay_ms" and entries:
+                    child.setValue(entries[0]["delay_ms"])
 ```
 
 - [ ] **Step 5: Run tests + commit**
