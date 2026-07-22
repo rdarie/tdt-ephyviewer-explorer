@@ -26,11 +26,11 @@ class ViewPlan:
 
     name: str
     viewer_type: str
-    params: dict
+    params: dict[str, Any]
     source: Any
 
 
-def _attachment_from_dict(d: dict) -> Attachment:
+def _attachment_from_dict(d: dict[str, Any]) -> Attachment:
     probe = d.get("probe_path")
     return Attachment(
         viewer_type=d["viewer_type"],

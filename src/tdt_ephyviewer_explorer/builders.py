@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 from ephyviewer import (
@@ -38,7 +38,7 @@ class Attachment:
     viewer_type: str
     delay_ms: float = 0.0
     probe_path: Path | None = None
-    params: dict = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 def apply_delay(t_start: float, delay_ms: float) -> float:
@@ -79,7 +79,7 @@ def build_analog_source(
     return InMemoryAnalogSignalSource(signals, fs, t_start=t_start, channel_names=names)
 
 
-def scalar_rows(store: object, columns: Sequence[str]) -> list[dict]:
+def scalar_rows(store: object, columns: Sequence[str]) -> list[dict[str, Any]]:
     """Turn a scalar store's ``data (n_params, n_events)`` into per-event dicts.
 
     :param store: Scalar store exposing ``data``.
@@ -200,7 +200,7 @@ _VIEWER_CLASSES = {
 _ANALOG_VIEWERS = frozenset({"trace", "timefreq", "spectrogram"})
 
 
-def build_viewer(viewer_type: str, source: object, name: str, params: dict) -> object:
+def build_viewer(viewer_type: str, source: object, name: str, params: dict[str, Any]) -> object:
     """Construct an ephyviewer viewer and apply parameter overrides.
 
     :param viewer_type: Key into the viewer registry.
@@ -217,7 +217,7 @@ def build_viewer(viewer_type: str, source: object, name: str, params: dict) -> o
 
 
 def build_source_for(
-    resolved: ResolvedStore, attachment: Attachment, store: object, schemas: dict
+    resolved: ResolvedStore, attachment: Attachment, store: object, schemas: dict[str, Any]
 ) -> object:
     """Dispatch to the correct source builder for one attachment.
 
