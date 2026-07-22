@@ -84,6 +84,10 @@ viewers:
 ```yaml
 # @package _global_
 # Ordered rules; first name-pattern match wins (fnmatch syntax).
+# Stores with no matching rule fall back to their tdt type (see TDT_TYPE_TO_ROLE):
+# scalars -> event, epocs -> epoch, streams -> timeseries, snips -> snip. The `snip`
+# role and spike builder remain available for genuine snip stores; no packaged rule
+# currently forces one (StS1 was verified to be a scalar/event store, not a snip).
 roles:
   - pattern: "eS?p"
     role: stim
@@ -91,9 +95,6 @@ roles:
     viewers: [eventlist, spiketrain]
     formatter:
       _target_: tdt_ephyviewer_explorer.formatters.iz_voice.IZVoiceFormatter
-  - pattern: "StS*"
-    role: snip
-    viewers: [spiketrain]
 ```
 
 `src/tdt_ephyviewer_explorer/config/schema/default.yaml`:
@@ -427,7 +428,7 @@ def test_resolve_role_falls_back_to_tdt_type() -> None:
 
 def test_rules_from_config_reads_packaged_rules() -> None:
     rules = rules_from_config(load_config())
-    assert any(r.role == "snip" for r in rules)
+    assert any(r.role == "stim" for r in rules)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1386,9 +1387,9 @@ git add src/tdt_ephyviewer_explorer/tank.py src/tdt_ephyviewer_explorer/stores.p
 git commit -m "feat: tdt header scan and per-store loader"
 ```
 
-> **Verify here:** When the real block is available, confirm `StS1` loads with waveform
-> `data`, `sortcode`, and `chan`. If it lacks these, add a role rule reclassifying it as
-> `event` instead of `snip` (spec §4.2).
+> **Verified (2026-07-22):** `StS1` loads as 1-D `data` (n_events,), `ts` (n_events,), a
+> single `chan` value, and `sortcode=None` — a scalar/event store, not a snip. Resolved by
+> removing the `StS*` snip rule so `StS1` falls back to the `event` role (Task 1 config).
 
 ---
 
@@ -2002,8 +2003,8 @@ Run (from repo root):
 
 Expected: Control Window opens listing `Wav1/MonA/SU_1/eS1p/eS1r/UDP1/StS1/Tick`. Enable
 `Wav1 → trace` and `eS1p → eventlist`, click **Launch window** — a MainViewer opens with the
-trace and the stim event list, time-synchronized. Confirm the `StS1` snip verification note
-from Task 9.
+trace and the stim event list, time-synchronized. (`StS1` now resolves to the `event` role,
+per the Task 9 verification.)
 
 ---
 
@@ -2015,4 +2016,5 @@ from Task 9.
   one-window-per-block launcher (T10), error handling (raises in T4/T7/T10), tests (all).
 - **Deferred (spec §12):** MonA/eS1r special handling, snip waveform overlay, live window
   state persistence, promoting column names to presets, multi-store viewers — none implemented, by design.
-- **Open verification:** `StS1` snip classification (flagged in T9).
+- **Resolved verification:** `StS1` classified as `event` (not `snip`) after real-block
+  inspection (T9); `MonA`/`eS1r` remain generic per deferral.

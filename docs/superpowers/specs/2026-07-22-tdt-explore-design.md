@@ -131,11 +131,12 @@ back to the tdt type. Roles and their valid viewer types:
 Observed mapping for the reference block (`rRew03-260626-131743`):
 `Wav1/SU_1 → timeseries`, `MonA → timeseries` (generic; special handling deferred),
 `eS1p → stim`, `eS1r → event` (generic; deferred), `UDP1 → event` (unknown columns),
-`StS1 → snip`, `Tick → epoch`.
+`StS1 → event`, `Tick → epoch`.
 
-> **Verify at implementation:** tdt tags `StS1` as `scalars`, but it is believed to be a
-> snip store. Before finalizing the snip builder, confirm `StS1` exposes waveform `data`,
-> `sortcode`, and `chan`. If it does not, reclassify as `event`.
+> **Resolved (2026-07-22):** tdt tags `StS1` as `scalars`; loading it from the real block
+> showed 1-D `data`, `ts`, a single `chan` value, and `sortcode=None` — a scalar/event
+> store, not a snip. It is classified as `event`. The `snip` role and spike builder remain
+> for genuine snip stores.
 
 ### 4.3 Lazy loading
 
