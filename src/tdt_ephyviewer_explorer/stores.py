@@ -144,6 +144,8 @@ def resolve_role(info: StoreInfo, rules: Sequence[RoleRule]) -> ResolvedStore:
 def _store_from_block(blk: object, name: str) -> Any:
     """Return the named store from a loaded tdt block across its store groups.
 
+    :param blk: A loaded tdt block (StructType) supporting ``[]`` and ``keys()``.
+    :param name: Store code to extract.
     :raises KeyError: If the store is not present in any group.
     """
     for group in ("streams", "scalars", "epocs", "snips"):
@@ -163,4 +165,7 @@ def load_store(block_path: Path, name: str) -> Any:
     :raises KeyError: If the store is not present in the block.
     """
     blk = tdt.read_block(str(block_path), store=[name])
-    return _store_from_block(blk, name)
+    try:
+        return _store_from_block(blk, name)
+    except KeyError:
+        raise KeyError(f"store {name!r} not found in block {block_path}") from None

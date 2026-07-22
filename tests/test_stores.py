@@ -73,7 +73,7 @@ def test_resolve_role_falls_back_to_tdt_type() -> None:
 
 def test_rules_from_config_reads_packaged_rules() -> None:
     rules = rules_from_config(load_config())
-    assert any(r.role == "snip" for r in rules)
+    assert any(r.role == "stim" for r in rules)
 
 
 def test_store_info_from_header_handles_missing_attribute() -> None:

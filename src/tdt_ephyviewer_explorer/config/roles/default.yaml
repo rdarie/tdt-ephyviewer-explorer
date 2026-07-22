@@ -1,5 +1,9 @@
 # @package _global_
 # Ordered rules; first name-pattern match wins (fnmatch syntax).
+# Stores with no matching rule fall back to their tdt type (see TDT_TYPE_TO_ROLE):
+# scalars -> event, epocs -> epoch, streams -> timeseries, snips -> snip. The `snip`
+# role and spike builder remain available for genuine snip stores; no packaged rule
+# currently forces one (StS1 was verified to be a scalar/event store, not a snip).
 roles:
   - pattern: "eS?p"
     role: stim
@@ -7,6 +11,3 @@ roles:
     viewers: [eventlist, spiketrain]
     formatter:
       _target_: tdt_ephyviewer_explorer.formatters.iz_voice.IZVoiceFormatter
-  - pattern: "StS*"
-    role: snip
-    viewers: [spiketrain]
