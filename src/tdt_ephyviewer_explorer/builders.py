@@ -58,6 +58,8 @@ def build_analog_source(
     :returns: The configured in-memory analog source.
     """
     data: np.ndarray = np.asarray(store.data)  # type: ignore[attr-defined]
+    if data.ndim == 1:
+        data = data[np.newaxis, :]  # single-channel stream -> (1, n_samples)
     fs: float = float(store.fs)  # type: ignore[attr-defined]
     if probe is not None:
         data = reorder_channels(data, probe)

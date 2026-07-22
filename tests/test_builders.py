@@ -29,6 +29,13 @@ def test_build_analog_source_shapes_and_tstart() -> None:
     assert src.t_start == 0.51
 
 
+def test_build_analog_source_handles_1d_single_channel() -> None:
+    store = FakeStream(data=np.arange(50.0), fs=1000.0, start_time=0.0)  # 1-D
+    src = build_analog_source(store, Attachment("trace"), probe=None)
+    assert src.signals.shape == (50, 1)
+    assert src.channel_names == ["ch00"]
+
+
 def test_build_analog_source_applies_probe_reorder_and_names() -> None:
     store = FakeStream(data=np.array([[0.0], [1.0], [2.0], [3.0]]), fs=1000.0, start_time=0.0)
     probe = ProbeMap(order=np.array([3, 2, 1, 0]), names=["w", "x", "y", "z"])

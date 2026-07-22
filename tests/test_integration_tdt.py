@@ -17,4 +17,5 @@ def test_scan_and_load_roundtrip() -> None:
     assert infos, "expected at least one store"
     stream = next(i for i in infos if i.tdt_type == "streams")
     store = load_store(block, stream.name)
-    assert store.data.ndim == 2
+    assert store.data.ndim in (1, 2)
+    assert store.data.size > 0
