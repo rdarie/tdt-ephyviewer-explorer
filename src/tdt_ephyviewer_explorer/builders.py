@@ -22,20 +22,28 @@ class Attachment:
     """One viewer attached to one store, with alignment options.
 
     :param viewer_type: Viewer key (e.g. ``"trace"``).
-    :param delay_samples: Samples added to the store's start time.
+    :param delay_ms: Milliseconds added to the store's start time (any store type).
     :param probe_path: Optional probe file for reorder (timeseries only).
     :param params: Viewer parameter overrides.
     """
 
     viewer_type: str
-    delay_samples: int = 0
+    delay_ms: float = 0.0
     probe_path: Path | None = None
     params: dict = field(default_factory=dict)
 
 
-def apply_delay(t_start: float, delay_samples: int, fs: float) -> float:
-    """Shift ``t_start`` by ``delay_samples / fs`` seconds."""
-    return float(t_start) + delay_samples / fs
+def apply_delay(t_start: float, delay_ms: float) -> float:
+    """Shift ``t_start`` by ``delay_ms`` milliseconds.
+
+    Unit-agnostic — needs no sample rate, so it applies uniformly to streams,
+    events, epochs, and snips.
+
+    :param t_start: Original start time in seconds.
+    :param delay_ms: Delay in milliseconds (may be negative).
+    :returns: The shifted start time in seconds.
+    """
+    return float(t_start) + delay_ms / 1000.0
 
 
 def build_analog_source(
@@ -57,7 +65,7 @@ def build_analog_source(
     else:
         names = [f"ch{k:0>2d}" for k in range(data.shape[0])]
     signals = np.ascontiguousarray(data.T)  # samples x channels
-    t_start = apply_delay(store.start_time, attachment.delay_samples, fs)  # type: ignore[attr-defined]
+    t_start = apply_delay(store.start_time, attachment.delay_ms)  # type: ignore[attr-defined]
     return InMemoryAnalogSignalSource(signals, fs, t_start=t_start, channel_names=names)
 
 
@@ -93,15 +101,17 @@ def build_event_source(
     :param store: Scalar store exposing ``data`` and ``ts``.
     :param columns: Column schema for the param rows.
     :param formatter: Row-to-label formatter.
-    :param attachment: Alignment options (delay in samples; requires ``fs`` on the store
-        for conversion, else delay is treated as seconds when ``fs`` is absent).
+    :param attachment: Alignment options; ``delay_ms`` shifts every timestamp.
+    :raises ValueError: If the number of timestamps does not match the number of events.
     """
     rows = scalar_rows(store, columns)
-    labels = np.array([formatter.format_row(r) for r in rows])
     ts = np.asarray(store.ts, dtype=float)  # type: ignore[attr-defined]
-    fs = getattr(store, "fs", None)
-    if attachment.delay_samples and fs:
-        ts = ts + attachment.delay_samples / float(fs)
+    if ts.shape[0] != len(rows):
+        raise ValueError(
+            f"store has {ts.shape[0]} timestamps but {len(rows)} events"
+        )
+    labels = np.array([formatter.format_row(r) for r in rows])
+    ts = ts + attachment.delay_ms / 1000.0
     return InMemoryEventSource(
         all_events=[{"name": attachment.viewer_type, "time": ts, "label": labels}]
     )
@@ -111,10 +121,12 @@ def build_epoch_source(store: object, attachment: Attachment) -> InMemoryEpochSo
     """Build an epoch source from an epoc store (onset/offset).
 
     :param store: Epoc store exposing ``onset`` and ``offset``.
-    :param attachment: Alignment options.
+    :param attachment: Alignment options; ``delay_ms`` shifts onset and offset equally
+        (so duration is unchanged).
     """
-    onset = np.asarray(store.onset, dtype=float)  # type: ignore[attr-defined]
-    offset = np.asarray(store.offset, dtype=float)  # type: ignore[attr-defined]
+    delay_s = attachment.delay_ms / 1000.0
+    onset = np.asarray(store.onset, dtype=float) + delay_s  # type: ignore[attr-defined]
+    offset = np.asarray(store.offset, dtype=float) + delay_s  # type: ignore[attr-defined]
     duration = offset - onset
     labels = np.array([str(i) for i in range(onset.size)])
     return InMemoryEpochSource(
@@ -135,10 +147,10 @@ def build_spike_source(
     present, all timestamps form a single train.
 
     :param store: Store exposing ``ts`` and optionally ``chan``/``sortcode``.
-    :param attachment: Alignment options.
+    :param attachment: Alignment options; ``delay_ms`` shifts every timestamp.
     :param group_fields: Ordered grouping fields to try.
     """
-    ts = np.asarray(store.ts, dtype=float)  # type: ignore[attr-defined]
+    ts = np.asarray(store.ts, dtype=float) + attachment.delay_ms / 1000.0  # type: ignore[attr-defined]
     present = [f for f in group_fields if getattr(store, f, None) is not None]
     if not present:
         return InMemorySpikeSource(all_spikes=[{"name": attachment.viewer_type, "time": ts}])

@@ -18,13 +18,13 @@ class FakeStream:
     start_time: float
 
 
-def test_apply_delay_converts_samples_to_seconds() -> None:
-    assert apply_delay(1.0, 20, 1000.0) == 1.02
+def test_apply_delay_converts_ms_to_seconds() -> None:
+    assert apply_delay(1.0, 20.0) == 1.02
 
 
 def test_build_analog_source_shapes_and_tstart() -> None:
     store = FakeStream(data=np.zeros((4, 100)), fs=1000.0, start_time=0.5)
-    src = build_analog_source(store, Attachment("trace", delay_samples=10), probe=None)
+    src = build_analog_source(store, Attachment("trace", delay_ms=10.0), probe=None)
     assert src.signals.shape == (100, 4)  # samples x channels
     assert src.t_start == 0.51
 
@@ -39,12 +39,15 @@ def test_build_analog_source_applies_probe_reorder_and_names() -> None:
 
 from dataclasses import dataclass as _dc
 
+import pytest
+
 from tdt_ephyviewer_explorer.builders import (
     build_epoch_source,
     build_event_source,
     build_spike_source,
     scalar_rows,
 )
+from tdt_ephyviewer_explorer.formatters.base import GenericFormatter
 from tdt_ephyviewer_explorer.formatters.iz_voice import IZVoiceFormatter
 
 
@@ -60,17 +63,36 @@ def test_scalar_rows_zips_columns() -> None:
     assert rows == [{"chanA": 5, "ampA": 10}, {"chanA": 6, "ampA": 20}]
 
 
-def test_build_event_source_uses_formatter_and_delay() -> None:
+def test_scalar_rows_reshapes_1d_data() -> None:
+    store = FakeScalar(data=np.array([5, 6, 7]), ts=np.array([0.0, 1.0, 2.0]))
+    rows = scalar_rows(store, ["chanA"])
+    assert rows == [{"chanA": 5}, {"chanA": 6}, {"chanA": 7}]
+
+
+def test_scalar_rows_column_mismatch_raises() -> None:
+    store = FakeScalar(data=np.array([[5, 6], [10, 20]]), ts=np.array([0.0, 1.0]))
+    with pytest.raises(ValueError, match="columns"):
+        scalar_rows(store, ["chanA"])
+
+
+def test_build_event_source_uses_formatter_and_applies_delay() -> None:
     store = FakeScalar(
-        data=np.array([[5, 0], [0, 0], [0, 0], [0, 0],  # chanA, chanB, chanC, chanD
-                       [100, 0], [0, 0], [0, 0], [0, 0]]),  # ampA..ampD
+        data=np.array([[5], [0], [0], [0],   # chanA, chanB, chanC, chanD
+                       [100], [0], [0], [0]]),  # ampA..ampD
         ts=np.array([2.0]),
     )
     cols = ["chanA", "chanB", "chanC", "chanD", "ampA", "ampB", "ampC", "ampD"]
-    src = build_event_source(store, cols, IZVoiceFormatter(), Attachment("eventlist"))
+    # 1000 ms delay -> +1.0 s.
+    src = build_event_source(store, cols, IZVoiceFormatter(), Attachment("eventlist", delay_ms=1000.0))
     ev = src.all[0]  # ephyviewer stores channel dicts under `.all`
     assert ev["label"][0] == "chA: 05 100 uA"
-    assert ev["time"][0] == 2.0
+    assert ev["time"][0] == 3.0
+
+
+def test_build_event_source_ts_length_mismatch_raises() -> None:
+    store = FakeScalar(data=np.array([[5, 6]]), ts=np.array([2.0]))  # 2 events, 1 ts
+    with pytest.raises(ValueError, match="timestamps"):
+        build_event_source(store, ["chanA"], GenericFormatter(["chanA"]), Attachment("eventlist"))
 
 
 @_dc
@@ -79,12 +101,12 @@ class FakeEpoc:
     offset: np.ndarray
 
 
-def test_build_epoch_source_computes_duration() -> None:
+def test_build_epoch_source_computes_duration_and_applies_delay() -> None:
     store = FakeEpoc(onset=np.array([1.0, 3.0]), offset=np.array([1.5, 3.25]))
-    src = build_epoch_source(store, Attachment("epoch"))
+    src = build_epoch_source(store, Attachment("epoch", delay_ms=500.0))  # +0.5 s
     ep = src.all[0]
-    assert list(ep["time"]) == [1.0, 3.0]
-    assert list(np.round(ep["duration"], 2)) == [0.5, 0.25]
+    assert list(ep["time"]) == [1.5, 3.5]
+    assert list(np.round(ep["duration"], 2)) == [0.5, 0.25]  # duration is delay-invariant
 
 
 @_dc
@@ -103,3 +125,15 @@ def test_build_spike_source_groups_by_chan_sortcode() -> None:
     src = build_spike_source(store, Attachment("spiketrain"))
     names = sorted(s["name"] for s in src.all)
     assert names == ["ch01 u01", "ch02 u01"]
+
+
+@_dc
+class FakeBareSpikes:
+    ts: np.ndarray
+
+
+def test_build_spike_source_single_train_when_ungrouped() -> None:
+    store = FakeBareSpikes(ts=np.array([0.1, 0.2]))
+    src = build_spike_source(store, Attachment("spiketrain"))
+    assert len(src.all) == 1
+    assert list(src.all[0]["time"]) == [0.1, 0.2]
