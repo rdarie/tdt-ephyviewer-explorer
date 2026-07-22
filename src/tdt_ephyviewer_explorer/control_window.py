@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from pyqtgraph.parametertree import Parameter, ParameterTree
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
@@ -38,7 +38,7 @@ def build_param_tree_spec(
             children.append(
                 {"name": "schema", "type": "str", "value": rs.schema, "readonly": True}
             )
-        viewer_children = [
+        viewer_children: list[dict] = [
             {"name": vt, "type": "bool", "value": False, "children": _params_children(
                 viewer_defaults.get(vt, {})
             )}
@@ -93,7 +93,12 @@ class ControlWindow(QtWidgets.QWidget):
 
     launch_requested = Signal(object)  # emits a Session
 
-    def __init__(self, cfg=None, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(self, cfg: DictConfig | None = None, parent: QtWidgets.QWidget | None = None) -> None:
+        """Initialize the control window with a parameter tree and launch button.
+
+        :param cfg: Configuration (default: loaded from config schema).
+        :param parent: Parent Qt widget.
+        """
         super().__init__(parent)
         self._cfg = cfg if cfg is not None else load_config()
         self._rules = rules_from_config(self._cfg)
@@ -110,7 +115,10 @@ class ControlWindow(QtWidgets.QWidget):
         layout.addWidget(launch_btn)
 
     def set_block(self, block_path: Path) -> None:
-        """Scan a block and rebuild the parameter tree for it."""
+        """Scan a block and rebuild the parameter tree for it.
+
+        :param block_path: Path to the block directory.
+        """
         self._block_path = block_path
         resolved = [resolve_role(i, self._rules) for i in scan_block(block_path)]
         spec = build_param_tree_spec(resolved, self._viewer_defaults)
@@ -118,6 +126,7 @@ class ControlWindow(QtWidgets.QWidget):
         self._root.addChildren(spec)
 
     def _on_launch(self) -> None:
+        """Read tree state, build a Session, and emit launch_requested signal."""
         if self._block_path is None:
             return
         state = self._read_state()

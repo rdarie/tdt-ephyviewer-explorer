@@ -28,11 +28,6 @@ def test_build_param_tree_spec_omits_probe_for_events() -> None:
     assert "probe_file" not in child_names
 
 
-import pytest
-
-ephyviewer = pytest.importorskip("ephyviewer")
-
-
 def test_spec_to_session_includes_only_enabled() -> None:
     from tdt_ephyviewer_explorer.control_window import spec_to_session
 
