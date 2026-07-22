@@ -1,0 +1,1 @@
+"""Stim-metadata label formatters."""
