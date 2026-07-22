@@ -1,0 +1,35 @@
+[project]
+name = "tdt-ephyviewer-explorer"
+version = "0.1.0"
+description = "Data exploration app for TDT recordings built on a custom ephyviewer fork"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+    "ephyviewer @ git+https://github.com/rdarie/ephyviewer.git@master",
+    "tdt",
+    "PySide6",
+    "numpy",
+    "pandas",
+    "hydra-core",
+    "probeinterface",
+    "pyqtgraph",
+]
+
+[project.scripts]
+tdt-explore = "tdt_ephyviewer_explorer.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+# Dev mode: use the local editable checkout of ephyviewer.
+#   uv sync              -> ephyviewer from the local path below (editable)
+#   uv sync --no-sources -> ephyviewer from the git fork (@master)
+[tool.uv.sources]
+ephyviewer = { path = "C:/Users/MBO/Documents/GitHub/ephyviewer", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"

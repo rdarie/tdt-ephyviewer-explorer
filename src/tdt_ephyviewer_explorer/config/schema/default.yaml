@@ -1,0 +1,27 @@
+# @package _global_
+schemas:
+  iz_param_names:
+    - perA
+    - countA
+    - ampA
+    - durA
+    - delayA
+    - chanA
+    - perB
+    - countB
+    - ampB
+    - durB
+    - delayB
+    - chanB
+    - perC
+    - countC
+    - ampC
+    - durC
+    - delayC
+    - chanC
+    - perD
+    - countD
+    - ampD
+    - durD
+    - delayD
+    - chanD

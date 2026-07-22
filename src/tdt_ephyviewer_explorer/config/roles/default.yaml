@@ -1,0 +1,12 @@
+# @package _global_
+# Ordered rules; first name-pattern match wins (fnmatch syntax).
+roles:
+  - pattern: "eS?p"
+    role: stim
+    schema: iz_param_names
+    viewers: [eventlist, spiketrain]
+    formatter:
+      _target_: tdt_ephyviewer_explorer.formatters.iz_voice.IZVoiceFormatter
+  - pattern: "StS*"
+    role: snip
+    viewers: [spiketrain]

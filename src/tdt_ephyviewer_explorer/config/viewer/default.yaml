@@ -1,0 +1,12 @@
+# @package _global_
+viewers:
+  trace:
+    scale_mode: real_scale
+    display_labels: true
+    antialias: true
+  timefreq:
+    show_axis: true
+  spectrogram: {}
+  eventlist: {}
+  spiketrain: {}
+  epoch: {}

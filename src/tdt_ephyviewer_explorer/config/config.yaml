@@ -1,0 +1,5 @@
+defaults:
+  - viewer: default
+  - roles: default
+  - schema: default
+  - _self_
