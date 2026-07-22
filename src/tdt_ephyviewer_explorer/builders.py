@@ -7,14 +7,22 @@ from typing import Sequence
 
 import numpy as np
 from ephyviewer import (
+    EpochViewer,
+    EventList,
     InMemoryAnalogSignalSource,
     InMemoryEpochSource,
     InMemoryEventSource,
     InMemorySpikeSource,
+    SpectrogramViewer,
+    SpikeTrainViewer,
+    TimeFreqViewer,
+    TraceViewer,
 )
+from hydra.utils import instantiate
 
-from tdt_ephyviewer_explorer.formatters.base import StimFormatter
-from tdt_ephyviewer_explorer.probe import ProbeMap, reorder_channels
+from tdt_ephyviewer_explorer.formatters.base import GenericFormatter, StimFormatter
+from tdt_ephyviewer_explorer.probe import ProbeMap, load_probe, reorder_channels
+from tdt_ephyviewer_explorer.stores import ResolvedStore
 
 
 @dataclass
@@ -166,3 +174,62 @@ def build_spike_source(
         )
         spikes.append({"name": label, "time": ts[mask]})
     return InMemorySpikeSource(all_spikes=spikes)
+
+
+_VIEWER_CLASSES = {
+    "trace": TraceViewer,
+    "timefreq": TimeFreqViewer,
+    "spectrogram": SpectrogramViewer,
+    "eventlist": EventList,
+    "spiketrain": SpikeTrainViewer,
+    "epoch": EpochViewer,
+}
+
+_ANALOG_VIEWERS = frozenset({"trace", "timefreq", "spectrogram"})
+
+
+def build_viewer(viewer_type: str, source: object, name: str, params: dict):
+    """Construct an ephyviewer viewer and apply parameter overrides.
+
+    :param viewer_type: Key into the viewer registry.
+    :param source: A built ephyviewer source.
+    :param name: Unique viewer name (dock key).
+    :param params: Parameter overrides applied via ``view.params[key] = value``.
+    :returns: The configured viewer.
+    :raises KeyError: If ``viewer_type`` is unknown.
+    """
+    view = _VIEWER_CLASSES[viewer_type](source=source, name=name)
+    for key, value in params.items():
+        view.params[key] = value
+    return view
+
+
+def build_source_for(
+    resolved: ResolvedStore, attachment: Attachment, store: object, schemas: dict
+) -> object:
+    """Dispatch to the correct source builder for one attachment.
+
+    :param resolved: The resolved store (role, schema, formatter).
+    :param attachment: The viewer attachment.
+    :param store: The loaded raw tdt store.
+    :param schemas: Mapping of schema name -> column list.
+    :returns: An ephyviewer source.
+    :raises ValueError: If the viewer type is not valid for the store's role.
+    """
+    vt = attachment.viewer_type
+    if vt not in resolved.viewers:
+        raise ValueError(f"viewer {vt!r} not valid for role {resolved.role!r}")
+    if vt in _ANALOG_VIEWERS:
+        probe = load_probe(attachment.probe_path) if attachment.probe_path else None
+        return build_analog_source(store, attachment, probe)
+    if resolved.role == "epoch":
+        return build_epoch_source(store, attachment)
+    if vt == "spiketrain":
+        return build_spike_source(store, attachment)
+    # eventlist on stim/event
+    columns = list(schemas.get(resolved.schema, [])) if resolved.schema else []
+    if not columns:
+        n = int(np.asarray(store.data).shape[0])  # type: ignore[attr-defined]
+        columns = [f"col{p:0>2d}" for p in range(n)]
+    formatter = instantiate(resolved.formatter) if resolved.formatter else GenericFormatter(columns)
+    return build_event_source(store, columns, formatter, attachment)
