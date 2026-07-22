@@ -125,7 +125,7 @@ back to the tdt type. Roles and their valid viewer types:
 | `timeseries` | TraceViewer, TimeFreqViewer, SpectrogramViewer | probe-aware; delay-aware |
 | `stim`       | EventList, SpikeTrainViewer                | schema + formatter applied |
 | `event`      | EventList, SpikeTrainViewer                | generic; schema optional |
-| `epoch`      | EventList, EpochViewer, SpikeTrainViewer   | onset/offset |
+| `epoch`      | EpochViewer, SpikeTrainViewer              | onset/offset (SpikeTrainViewer uses onsets); EventList dropped in v1 (needs scalar schema) |
 | `snip`       | SpikeTrainViewer                           | raster by chan/sortcode; waveform overlay deferred |
 
 Observed mapping for the reference block (`rRew03-260626-131743`):
