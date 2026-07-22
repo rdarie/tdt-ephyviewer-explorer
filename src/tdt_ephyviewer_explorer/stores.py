@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+import tdt
 
 
 @dataclass(frozen=True)
@@ -138,3 +139,19 @@ def resolve_role(info: StoreInfo, rules: Sequence[RoleRule]) -> ResolvedStore:
             return ResolvedStore(info, rule.role, rule.schema, viewers, rule.formatter)
     role = TDT_TYPE_TO_ROLE[info.tdt_type]
     return ResolvedStore(info, role, None, VALID_VIEWERS[role], None)
+
+
+def load_store(block_path: Path, name: str) -> Any:
+    """Load a single store's full data from a block.
+
+    :param block_path: Path to the block directory.
+    :param name: Store code to load.
+    :returns: The raw tdt store object (from ``streams``/``scalars``/``epocs``/``snips``).
+    :raises KeyError: If the store is not present in the block.
+    """
+    blk = tdt.read_block(str(block_path), store=[name])
+    for group in ("streams", "scalars", "epocs", "snips"):
+        section = blk.get(group)
+        if section is not None and name in section.keys():
+            return section[name]
+    raise KeyError(f"store {name!r} not found in block {block_path}")
