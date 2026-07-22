@@ -9,7 +9,7 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
 
 from tdt_ephyviewer_explorer.config_schema import load_config
-from tdt_ephyviewer_explorer.session import Session
+from tdt_ephyviewer_explorer.session import Session, load_session, save_session
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
 from tdt_ephyviewer_explorer.tank import scan_block
 
@@ -114,6 +114,13 @@ class ControlWindow(QtWidgets.QWidget):
         layout.addWidget(self._tree)
         layout.addWidget(launch_btn)
 
+        save_btn = QtWidgets.QPushButton("Save session")
+        save_btn.clicked.connect(self._on_save)
+        load_btn = QtWidgets.QPushButton("Load session")
+        load_btn.clicked.connect(self._on_load)
+        layout.addWidget(save_btn)
+        layout.addWidget(load_btn)
+
     def set_block(self, block_path: Path) -> None:
         """Scan a block and rebuild the parameter tree for it.
 
@@ -149,3 +156,38 @@ class ControlWindow(QtWidgets.QWidget):
             s["Viewers"] = viewers
             out[store.name()] = s
         return out
+
+    def _on_save(self) -> None:
+        if self._block_path is None:
+            return
+        name, ok = QtWidgets.QInputDialog.getText(self, "Save session", "Session name:")
+        if ok and name:
+            session = spec_to_session(self._block_path.name, self._read_state())
+            save_session(session, self._block_path.parent, name)
+
+    def _on_load(self) -> None:
+        if self._block_path is None:
+            return
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load session", str(self._block_path.parent), "YAML (*.yaml)"
+        )
+        if path:
+            session = load_session(Path(path))
+            self._apply_session(session)
+
+    def _apply_session(self, session: Session) -> None:
+        """Set tree values from a loaded session (enabling the saved viewers)."""
+        for store in self._root.children():
+            entries = session.attachments.get(store.name(), [])
+            by_type = {e["viewer_type"]: e for e in entries}
+            for child in store.children():
+                if child.name() == "Viewers":
+                    for v in child.children():
+                        entry = by_type.get(v.name())
+                        v.setValue(entry is not None)
+                        if entry:
+                            for p in v.children():
+                                if p.name() in entry["params"]:
+                                    p.setValue(entry["params"][p.name()])
+                elif child.name() == "delay_ms" and entries:
+                    child.setValue(entries[0]["delay_ms"])
