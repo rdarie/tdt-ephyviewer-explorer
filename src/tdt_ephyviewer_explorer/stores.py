@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -60,3 +61,80 @@ def store_info_from_header(name: str, store: Mapping[str, Any] | object) -> Stor
         t_start=t_start,
         duration=None,
     )
+
+
+VALID_VIEWERS: dict[str, tuple[str, ...]] = {
+    "timeseries": ("trace", "timefreq", "spectrogram"),
+    "stim": ("eventlist", "spiketrain"),
+    "event": ("eventlist", "spiketrain"),
+    "epoch": ("eventlist", "epoch", "spiketrain"),
+    "snip": ("spiketrain",),
+}
+
+TDT_TYPE_TO_ROLE: dict[str, str] = {
+    "streams": "timeseries",
+    "scalars": "event",
+    "epocs": "epoch",
+    "snips": "snip",
+}
+
+
+@dataclass(frozen=True)
+class RoleRule:
+    """A name-pattern rule mapping a store to a semantic role.
+
+    :param pattern: fnmatch pattern tested against the store name.
+    :param role: Semantic role (key of :data:`VALID_VIEWERS`).
+    :param schema: Named column schema, or ``None``.
+    :param viewers: Allowed viewer types; empty means use the role default.
+    :param formatter: Hydra ``_target_`` spec for a stim formatter, or ``None``.
+    """
+
+    pattern: str
+    role: str
+    schema: str | None = None
+    viewers: tuple[str, ...] = ()
+    formatter: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedStore:
+    """A store with its resolved role and viewer options."""
+
+    info: StoreInfo
+    role: str
+    schema: str | None
+    viewers: tuple[str, ...]
+    formatter: dict[str, Any] | None
+
+
+def rules_from_config(cfg: Any) -> list[RoleRule]:
+    """Convert the ``roles`` list of a composed config into :class:`RoleRule` objects."""
+    rules: list[RoleRule] = []
+    for r in cfg.roles:
+        rules.append(
+            RoleRule(
+                pattern=str(r.pattern),
+                role=str(r.role),
+                schema=str(r.schema) if r.get("schema") is not None else None,
+                viewers=tuple(r.get("viewers") or ()),
+                formatter=dict(r.formatter) if r.get("formatter") is not None else None,
+            )
+        )
+    return rules
+
+
+def resolve_role(info: StoreInfo, rules: Sequence[RoleRule]) -> ResolvedStore:
+    """Resolve a store's semantic role via name patterns, falling back to its tdt type.
+
+    :param info: The store description.
+    :param rules: Ordered role rules; first match wins.
+    :returns: The resolved store with role, schema, viewers, and formatter.
+    :raises KeyError: If the tdt type is unknown and no rule matches.
+    """
+    for rule in rules:
+        if fnmatchcase(info.name, rule.pattern):
+            viewers = rule.viewers or VALID_VIEWERS[rule.role]
+            return ResolvedStore(info, rule.role, rule.schema, viewers, rule.formatter)
+    role = TDT_TYPE_TO_ROLE[info.tdt_type]
+    return ResolvedStore(info, role, None, VALID_VIEWERS[role], None)

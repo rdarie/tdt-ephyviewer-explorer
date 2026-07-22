@@ -29,3 +29,34 @@ def test_store_info_from_scalar_header() -> None:
     assert info.tdt_type == "scalars"
     assert info.fs is None
     assert info.n_channels == 1
+
+
+from tdt_ephyviewer_explorer.stores import (
+    RoleRule,
+    resolve_role,
+    rules_from_config,
+)
+from tdt_ephyviewer_explorer.config_schema import load_config
+
+
+def _info(name: str, tdt_type: str) -> StoreInfo:
+    return StoreInfo(name, tdt_type, None, 1, None, 0.0, None)
+
+
+def test_resolve_role_matches_pattern() -> None:
+    rules = [RoleRule("eS?p", "stim", "iz_param_names", ("eventlist",), {"_target_": "x"})]
+    resolved = resolve_role(_info("eS1p", "scalars"), rules)
+    assert resolved.role == "stim"
+    assert resolved.schema == "iz_param_names"
+    assert resolved.viewers == ("eventlist",)
+
+
+def test_resolve_role_falls_back_to_tdt_type() -> None:
+    resolved = resolve_role(_info("Wav1", "streams"), [])
+    assert resolved.role == "timeseries"
+    assert resolved.viewers == ("trace", "timefreq", "spectrogram")
+
+
+def test_rules_from_config_reads_packaged_rules() -> None:
+    rules = rules_from_config(load_config())
+    assert any(r.role == "snip" for r in rules)
