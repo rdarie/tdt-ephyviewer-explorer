@@ -36,7 +36,7 @@ def _get(store: Mapping[str, Any] | object, key: str) -> Any:
     """Read ``key`` from a dict-like or attribute-based tdt store object."""
     try:
         return store[key]  # type: ignore[index]
-    except (KeyError, TypeError):
+    except (KeyError, TypeError, AttributeError):
         return getattr(store, key, None)
 
 
@@ -141,6 +141,19 @@ def resolve_role(info: StoreInfo, rules: Sequence[RoleRule]) -> ResolvedStore:
     return ResolvedStore(info, role, None, VALID_VIEWERS[role], None)
 
 
+def _store_from_block(blk: object, name: str) -> Any:
+    """Return the named store from a loaded tdt block across its store groups.
+
+    :raises KeyError: If the store is not present in any group.
+    """
+    for group in ("streams", "scalars", "epocs", "snips"):
+        if group in blk.keys():  # type: ignore[attr-defined]
+            section = blk[group]  # type: ignore[index]
+            if name in section.keys():
+                return section[name]
+    raise KeyError(f"store {name!r} not found in loaded block")
+
+
 def load_store(block_path: Path, name: str) -> Any:
     """Load a single store's full data from a block.
 
@@ -150,8 +163,4 @@ def load_store(block_path: Path, name: str) -> Any:
     :raises KeyError: If the store is not present in the block.
     """
     blk = tdt.read_block(str(block_path), store=[name])
-    for group in ("streams", "scalars", "epocs", "snips"):
-        section = blk.get(group)
-        if section is not None and name in section.keys():
-            return section[name]
-    raise KeyError(f"store {name!r} not found in block {block_path}")
+    return _store_from_block(blk, name)

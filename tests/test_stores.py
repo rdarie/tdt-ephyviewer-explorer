@@ -1,7 +1,21 @@
 """Tests for store header parsing."""
 import numpy as np
+import pytest
 
-from tdt_ephyviewer_explorer.stores import StoreInfo, store_info_from_header
+from tdt_ephyviewer_explorer.stores import (
+    StoreInfo,
+    _store_from_block,
+    store_info_from_header,
+)
+
+
+class _FakeTdtStore:
+    def __init__(self, **attrs):
+        for k, v in attrs.items():
+            setattr(self, k, v)
+
+    def __getitem__(self, key):
+        return getattr(self, key)  # AttributeError if absent, like tdt StructType
 
 
 def test_store_info_from_stream_header() -> None:
@@ -60,3 +74,22 @@ def test_resolve_role_falls_back_to_tdt_type() -> None:
 def test_rules_from_config_reads_packaged_rules() -> None:
     rules = rules_from_config(load_config())
     assert any(r.role == "snip" for r in rules)
+
+
+def test_store_info_from_header_handles_missing_attribute() -> None:
+    info = store_info_from_header(
+        "eS1p", _FakeTdtStore(type_str="scalars", chan=np.array([1]))
+    )
+    assert info.fs is None
+    assert info.tdt_type == "scalars"
+    assert info.n_channels == 1
+
+
+def test_store_from_block_finds_across_groups() -> None:
+    blk = {"streams": {"Wav1": "W"}, "scalars": {"eS1p": "E"}}
+    assert _store_from_block(blk, "eS1p") == "E"
+
+
+def test_store_from_block_missing_raises() -> None:
+    with pytest.raises(KeyError, match="not found"):
+        _store_from_block({"streams": {}}, "Nope")
