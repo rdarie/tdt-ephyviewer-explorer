@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ephyviewer import MainViewer
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from tdt_ephyviewer_explorer.builders import Attachment, build_source_for, build_viewer
 from tdt_ephyviewer_explorer.session import Session
@@ -22,7 +22,7 @@ def _attachment_from_dict(d: dict) -> Attachment:
     )
 
 
-def launch_block(block_path: Path, session: Session, cfg) -> MainViewer:
+def launch_block(block_path: Path, session: Session, cfg: DictConfig) -> MainViewer:
     """Build and populate a MainViewer for one block from a session.
 
     :param block_path: Block directory.
@@ -39,6 +39,10 @@ def launch_block(block_path: Path, session: Session, cfg) -> MainViewer:
     win.setWindowTitle(block_path.name)
     first_name: str | None = None
     for store_name, attach_dicts in session.attachments.items():
+        if store_name not in infos:
+            raise KeyError(
+                f"session references store {store_name!r} not present in block {block_path.name}"
+            )
         resolved = resolve_role(infos[store_name], rules)
         raw = load_store(block_path, store_name)
         for d in attach_dicts:

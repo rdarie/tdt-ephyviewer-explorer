@@ -144,3 +144,62 @@ def test_build_spike_source_single_train_when_ungrouped() -> None:
     src = build_spike_source(store, Attachment("spiketrain"))
     assert len(src.all) == 1
     assert list(src.all[0]["time"]) == [0.1, 0.2]
+
+
+from tdt_ephyviewer_explorer.builders import build_source_for
+from tdt_ephyviewer_explorer.stores import ResolvedStore, StoreInfo
+
+
+def _resolved(role, viewers, schema=None, formatter=None):
+    info = StoreInfo("X", "scalars", None, 1, None, 0.0, None)
+    return ResolvedStore(info, role, schema, viewers, formatter)
+
+
+def test_build_source_for_rejects_invalid_viewer() -> None:
+    resolved = _resolved("timeseries", ("trace",))
+    store = FakeStream(data=np.zeros((2, 5)), fs=1000.0, start_time=0.0)
+    with pytest.raises(ValueError, match="not valid"):
+        build_source_for(resolved, Attachment("eventlist"), store, {})
+
+
+def test_build_source_for_analog() -> None:
+    from ephyviewer import InMemoryAnalogSignalSource
+    resolved = _resolved("timeseries", ("trace",))
+    store = FakeStream(data=np.zeros((2, 5)), fs=1000.0, start_time=0.0)
+    src = build_source_for(resolved, Attachment("trace"), store, {})
+    assert isinstance(src, InMemoryAnalogSignalSource)
+
+
+def test_build_source_for_eventlist_schemaless_1d() -> None:
+    from ephyviewer import InMemoryEventSource
+    resolved = _resolved("event", ("eventlist", "spiketrain"))
+    store = FakeScalar(data=np.arange(4.0), ts=np.arange(4.0))  # 1-D -> 1 param row
+    src = build_source_for(resolved, Attachment("eventlist"), store, {})
+    assert isinstance(src, InMemoryEventSource)
+    assert len(src.all[0]["time"]) == 4  # 4 events, single placeholder col00
+
+
+def test_build_source_for_eventlist_with_schema_generic_formatter() -> None:
+    resolved = _resolved("stim", ("eventlist",), schema="iz")
+    store = FakeScalar(data=np.array([[5.0, 6.0]]), ts=np.array([0.0, 1.0]))
+    src = build_source_for(resolved, Attachment("eventlist"), store, {"iz": ["chanA"]})
+    assert src.all[0]["label"][0] == "chanA: 5.0"
+
+
+def test_build_source_for_spiketrain_on_event() -> None:
+    from ephyviewer import InMemorySpikeSource
+    resolved = _resolved("event", ("eventlist", "spiketrain"))
+    store = FakeScalar(data=np.arange(3.0), ts=np.arange(3.0))
+    src = build_source_for(resolved, Attachment("spiketrain"), store, {})
+    assert isinstance(src, InMemorySpikeSource)
+
+
+def test_build_source_for_epoch_and_spiketrain_on_epoch() -> None:
+    from ephyviewer import InMemoryEpochSource, InMemorySpikeSource
+    resolved = _resolved("epoch", ("epoch", "spiketrain"))
+    store = FakeEpoc(onset=np.array([1.0, 2.0]), offset=np.array([1.5, 2.5]))
+    ep = build_source_for(resolved, Attachment("epoch"), store, {})
+    assert isinstance(ep, InMemoryEpochSource)
+    sp = build_source_for(resolved, Attachment("spiketrain"), store, {})  # onset fallback
+    assert isinstance(sp, InMemorySpikeSource)
+    assert list(sp.all[0]["time"]) == [1.0, 2.0]

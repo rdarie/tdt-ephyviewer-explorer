@@ -156,12 +156,24 @@ def build_spike_source(
     Fields absent on the store are dropped from the grouping. If no grouping field is
     present, all timestamps form a single train.
 
-    :param store: Store exposing ``ts`` and optionally ``chan``/``sortcode``.
+    :param store: Store exposing ``ts`` OR ``onset`` (epoc stores), and optionally
+        ``chan``/``sortcode``.
     :param attachment: Alignment options; ``delay_ms`` shifts every timestamp.
     :param group_fields: Ordered grouping fields to try.
     """
-    ts = np.asarray(store.ts, dtype=float) + attachment.delay_ms / 1000.0  # type: ignore[attr-defined]
-    present = [f for f in group_fields if getattr(store, f, None) is not None]
+    raw_times = getattr(store, "ts", None)
+    if raw_times is None:
+        raw_times = getattr(store, "onset", None)  # epoc stores use onset as event times
+    if raw_times is None:
+        raise ValueError("store has neither 'ts' nor 'onset' for a spike train")
+    ts = np.asarray(raw_times, dtype=float) + attachment.delay_ms / 1000.0
+    # Only group by a field whose length matches the number of timestamps.
+    present = [
+        f
+        for f in group_fields
+        if getattr(store, f, None) is not None
+        and np.asarray(getattr(store, f)).ravel().size == ts.size
+    ]
     if not present:
         return InMemorySpikeSource(all_spikes=[{"name": attachment.viewer_type, "time": ts}])
     arrays = {f: np.asarray(getattr(store, f)).ravel() for f in present}
@@ -188,7 +200,7 @@ _VIEWER_CLASSES = {
 _ANALOG_VIEWERS = frozenset({"trace", "timefreq", "spectrogram"})
 
 
-def build_viewer(viewer_type: str, source: object, name: str, params: dict):
+def build_viewer(viewer_type: str, source: object, name: str, params: dict) -> object:
     """Construct an ephyviewer viewer and apply parameter overrides.
 
     :param viewer_type: Key into the viewer registry.
@@ -222,14 +234,15 @@ def build_source_for(
     if vt in _ANALOG_VIEWERS:
         probe = load_probe(attachment.probe_path) if attachment.probe_path else None
         return build_analog_source(store, attachment, probe)
-    if resolved.role == "epoch":
+    if vt == "epoch":
         return build_epoch_source(store, attachment)
     if vt == "spiketrain":
         return build_spike_source(store, attachment)
-    # eventlist on stim/event
+    # eventlist on a stim/event store
+    data = np.asarray(store.data)  # type: ignore[attr-defined]
     columns = list(schemas.get(resolved.schema, [])) if resolved.schema else []
     if not columns:
-        n = int(np.asarray(store.data).shape[0])  # type: ignore[attr-defined]
-        columns = [f"col{p:0>2d}" for p in range(n)]
+        n_params = 1 if data.ndim == 1 else data.shape[0]
+        columns = [f"col{p:0>2d}" for p in range(n_params)]
     formatter = instantiate(resolved.formatter) if resolved.formatter else GenericFormatter(columns)
     return build_event_source(store, columns, formatter, attachment)

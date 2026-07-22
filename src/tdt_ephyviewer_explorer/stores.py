@@ -68,7 +68,7 @@ VALID_VIEWERS: dict[str, tuple[str, ...]] = {
     "timeseries": ("trace", "timefreq", "spectrogram"),
     "stim": ("eventlist", "spiketrain"),
     "event": ("eventlist", "spiketrain"),
-    "epoch": ("eventlist", "epoch", "spiketrain"),
+    "epoch": ("epoch", "spiketrain"),
     "snip": ("spiketrain",),
 }
 
