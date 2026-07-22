@@ -1,0 +1,19 @@
+{
+  "specification": "probeinterface",
+  "version": "0.3.2",
+  "probes": [
+    {
+      "ndim": 2,
+      "si_units": "um",
+      "annotations": {},
+      "contact_annotations": {"brain_region": ["A", "B", "C", "D"]},
+      "contact_positions": [[0, 0], [0, 100], [0, 200], [0, 300]],
+      "contact_plane_axes": [[0, 1], [0, 1], [0, 1], [0, 1]],
+      "contact_shapes": ["circle", "circle", "circle", "circle"],
+      "contact_shape_params": [{"radius": 5}, {"radius": 5}, {"radius": 5}, {"radius": 5}],
+      "device_channel_indices": [3, 2, 1, 0],
+      "contact_ids": ["00", "01", "02", "03"],
+      "shank_ids": ["0", "0", "0", "0"]
+    }
+  ]
+}
