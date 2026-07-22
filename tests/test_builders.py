@@ -146,6 +146,18 @@ def test_build_spike_source_single_train_when_ungrouped() -> None:
     assert list(src.all[0]["time"]) == [0.1, 0.2]
 
 
+def test_build_spike_source_ignores_mismatched_group_field() -> None:
+    @_dc
+    class FakeMismatch:
+        ts: np.ndarray
+        chan: np.ndarray
+
+    store = FakeMismatch(ts=np.arange(5.0), chan=np.array([1]))  # chan len 1 != ts len 5
+    src = build_spike_source(store, Attachment("spiketrain"))
+    assert len(src.all) == 1
+    assert list(src.all[0]["time"]) == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
 from tdt_ephyviewer_explorer.builders import build_source_for
 from tdt_ephyviewer_explorer.stores import ResolvedStore, StoreInfo
 
