@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 
 from ephyviewer import MainViewer, mkQApp
+from omegaconf import DictConfig
 
 from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.control_window import ControlWindow
@@ -15,14 +16,20 @@ from tdt_ephyviewer_explorer.session import Session
 class App:
     """Owns the control window and any open block windows."""
 
-    def __init__(self, cfg=None) -> None:
+    def __init__(self, cfg: DictConfig | None = None) -> None:
         self._cfg = cfg if cfg is not None else load_config()
         self.control_window = ControlWindow(self._cfg)
         self.windows: list[MainViewer] = []
+        self._tank_dir: Path | None = None
         self.control_window.launch_requested.connect(self._on_launch)
 
     def open_tank(self, tank_dir: Path, block: str | None = None) -> None:
-        """Point the control window at a tank; optionally preselect a block."""
+        """Point the control window at a tank; optionally preselect a block.
+
+        :param tank_dir: Tank directory containing block subdirectories.
+        :param block: Block name to preselect, or ``None`` to leave unselected.
+        :returns: None.
+        """
         self._tank_dir = tank_dir
         if block is not None:
             self.control_window.set_block(tank_dir / block)

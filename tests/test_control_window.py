@@ -1,4 +1,6 @@
 """Tests for the control-tree spec and window."""
+import pytest
+
 from tdt_ephyviewer_explorer.control_window import build_param_tree_spec
 from tdt_ephyviewer_explorer.stores import ResolvedStore, StoreInfo
 
@@ -44,3 +46,48 @@ def test_spec_to_session_includes_only_enabled() -> None:
     assert list(session.attachments) == ["Wav1"]
     assert session.attachments["Wav1"][0]["viewer_type"] == "trace"
     assert session.attachments["Wav1"][0]["delay_ms"] == 5.0
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    import ephyviewer
+    return ephyviewer.mkQApp()
+
+
+def test_apply_session_round_trip_restores_viewers_delay_probe(qapp, monkeypatch) -> None:
+    from pathlib import Path
+
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow, spec_to_session
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.session import Session
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    # A timeseries store -> tree gets delay_ms, probe_file, reorder, and a Viewers group.
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    cw.set_block(Path("blk"))
+
+    session = Session(
+        block="blk",
+        attachments={
+            "Wav1": [
+                {
+                    "viewer_type": "trace",
+                    "delay_ms": 12.0,
+                    "probe_path": "C:/probes/p.json",
+                    "params": {},
+                }
+            ]
+        },
+    )
+    cw._apply_session(session)
+    round_tripped = spec_to_session("blk", cw._read_state())
+    entry = round_tripped.attachments["Wav1"][0]
+    assert entry["viewer_type"] == "trace"
+    assert entry["delay_ms"] == 12.0
+    assert entry["probe_path"] == "C:/probes/p.json"  # reorder+probe restored on load

@@ -158,6 +158,7 @@ class ControlWindow(QtWidgets.QWidget):
         return out
 
     def _on_save(self) -> None:
+        """Prompt for a name and save the current composition as a session."""
         if self._block_path is None:
             return
         name, ok = QtWidgets.QInputDialog.getText(self, "Save session", "Session name:")
@@ -166,10 +167,12 @@ class ControlWindow(QtWidgets.QWidget):
             save_session(session, self._block_path.parent, name)
 
     def _on_load(self) -> None:
+        """Prompt for a session file and apply it to the tree."""
         if self._block_path is None:
             return
+        start_dir = self._block_path.parent / "tdt_explore" / "sessions"
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Load session", str(self._block_path.parent), "YAML (*.yaml)"
+            self, "Load session", str(start_dir), "YAML (*.yaml)"
         )
         if path:
             session = load_session(Path(path))
@@ -191,3 +194,7 @@ class ControlWindow(QtWidgets.QWidget):
                                     p.setValue(entry["params"][p.name()])
                 elif child.name() == "delay_ms" and entries:
                     child.setValue(entries[0]["delay_ms"])
+                elif child.name() == "probe_file" and entries:
+                    child.setValue(entries[0].get("probe_path") or "")
+                elif child.name() == "reorder" and entries:
+                    child.setValue(bool(entries[0].get("probe_path")))
