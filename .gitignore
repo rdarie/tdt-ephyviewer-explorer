@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Large local-only reference assets (vendor manuals, etc.)
+docs/assets/*.pdf
