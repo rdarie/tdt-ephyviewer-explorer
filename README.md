@@ -46,25 +46,6 @@ uv sync
 `uv sync` installs ephyviewer **editable** from `../ephyviewer`, so your edits to the fork
 take effect immediately.
 
-**How the split works** — `pyproject.toml` declares the git fork as the real dependency and
-adds a dev-only override:
-
-```toml
-[tool.uv.sources]
-ephyviewer = { path = "../ephyviewer", editable = true }
-```
-
-| Command | ephyviewer source |
-|---|---|
-| `uv sync` | editable local `../ephyviewer` (dev) |
-| `uv sync --no-sources` | pinned git fork `@master` (no local checkout) |
-
-The path is **relative** to `pyproject.toml`, so it is portable across machines that follow
-the sibling layout — no absolute or per-user paths are committed. (Note: uv does not expand
-environment variables or `.env` files inside `pyproject.toml`, so a relative source path,
-not a `.env`, is the way to keep this un-hardcoded. If your fork lives elsewhere, just use
-`uv sync --no-sources`.)
-
 ## Running
 
 ```bash
