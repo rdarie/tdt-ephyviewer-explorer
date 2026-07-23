@@ -11,7 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 from tdt_ephyviewer_explorer.builders import Attachment, build_source_for, build_viewer
 from tdt_ephyviewer_explorer.session import Session
 from tdt_ephyviewer_explorer.stores import load_store, resolve_role, rules_from_config
-from tdt_ephyviewer_explorer.tank import scan_block
+from tdt_ephyviewer_explorer.tank import read_headers, scan_block
 
 
 @dataclass
@@ -40,21 +40,28 @@ def _attachment_from_dict(d: dict[str, Any]) -> Attachment:
     )
 
 
-def plan_views(block_path: Path, session: Session, cfg: DictConfig) -> list[ViewPlan]:
+def plan_views(
+    block_path: Path, session: Session, cfg: DictConfig, headers: Any | None = None
+) -> list[ViewPlan]:
     """Resolve a session into an ordered list of viewers to build (Qt-free).
 
-    Scans the block once, resolves each store's role, loads each referenced store
-    exactly once (even with several viewers attached), and builds one source per
-    attachment. Contains no Qt/GUI code so it is unit-testable headlessly.
+    Parses the block's ``.tsq`` index once and reuses it for the header scan and
+    every store load (rather than re-parsing per read), resolves each store's role,
+    loads each referenced store exactly once (even with several viewers attached),
+    and builds one source per attachment. Contains no Qt/GUI code so it is
+    unit-testable headlessly.
 
     :param block_path: Block directory.
     :param session: The composition to realize.
     :param cfg: Composed Hydra config (viewers, roles, schemas).
+    :param headers: Pre-parsed headers (see :func:`~tank.read_headers`) to reuse;
+        when ``None`` the index is parsed here, once.
     :returns: One :class:`ViewPlan` per attachment, in session order.
     :raises KeyError: If a session references a store absent from the block.
     """
     rules = rules_from_config(cfg)
-    infos = {info.name: info for info in scan_block(block_path)}
+    heads = headers if headers is not None else read_headers(block_path)
+    infos = {info.name: info for info in scan_block(block_path, headers=heads)}
     schemas = OmegaConf.to_container(cfg.schemas, resolve=True)
     viewer_defaults = OmegaConf.to_container(cfg.viewers, resolve=True)
 
@@ -65,7 +72,7 @@ def plan_views(block_path: Path, session: Session, cfg: DictConfig) -> list[View
                 f"session references store {store_name!r} not present in block {block_path.name}"
             )
         resolved = resolve_role(infos[store_name], rules)
-        raw = load_store(block_path, store_name)  # loaded once per store
+        raw = load_store(block_path, store_name, headers=heads)  # loaded once per store
         for d in attach_dicts:
             attachment = _attachment_from_dict(d)
             source = build_source_for(resolved, attachment, raw, schemas)
@@ -75,7 +82,9 @@ def plan_views(block_path: Path, session: Session, cfg: DictConfig) -> list[View
     return plans
 
 
-def launch_block(block_path: Path, session: Session, cfg: DictConfig) -> MainViewer:
+def launch_block(
+    block_path: Path, session: Session, cfg: DictConfig, headers: Any | None = None
+) -> MainViewer:
     """Build and populate a MainViewer for one block from a session.
 
     Thin Qt wrapper over :func:`plan_views`: docks the first viewer bare and
@@ -84,12 +93,13 @@ def launch_block(block_path: Path, session: Session, cfg: DictConfig) -> MainVie
     :param block_path: Block directory.
     :param session: The composition to realize.
     :param cfg: Composed Hydra config (viewers, roles, schemas).
+    :param headers: Pre-parsed headers (see :func:`~tank.read_headers`) to reuse.
     :returns: The populated (but not yet shown) MainViewer.
     """
     win = MainViewer(debug=False)
     win.setWindowTitle(block_path.name)
     first_name: str | None = None
-    for plan in plan_views(block_path, session, cfg):
+    for plan in plan_views(block_path, session, cfg, headers=headers):
         view = build_viewer(plan.viewer_type, plan.source, plan.name, plan.params)
         if first_name is None:
             win.add_view(view)

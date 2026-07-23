@@ -64,10 +64,11 @@ def test_apply_session_round_trip_restores_viewers_delay_probe(qapp, monkeypatch
     from tdt_ephyviewer_explorer.stores import StoreInfo
 
     # A timeseries store -> tree gets delay_ms, probe_file, reorder, and a Viewers group.
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
     monkeypatch.setattr(
         cw_mod,
         "scan_block",
-        lambda p: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
     )
     cw = ControlWindow(load_config())
     cw.set_block(Path("blk"))
@@ -93,6 +94,28 @@ def test_apply_session_round_trip_restores_viewers_delay_probe(qapp, monkeypatch
     assert entry["probe_path"] == "C:/probes/p.json"  # reorder+probe restored on load
 
 
+def test_set_block_exposes_parsed_headers(qapp, monkeypatch) -> None:
+    from pathlib import Path
+
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    heads = object()
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: heads)
+    scan_args: list[object] = []
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p, headers=None: (scan_args.append(headers), [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)])[1],
+    )
+    cw = ControlWindow(load_config())
+    cw.set_block(Path("blk"))
+    assert cw.headers is heads  # parsed once, kept for reuse at launch
+    assert scan_args == [heads]  # scan reused the parsed headers (no second parse)
+
+
 def _make_tank(tmp_path):
     """Create a tank dir with two block subdirs, each holding a .tsq file."""
     for name in ("blockB-2", "blockA-1"):  # unsorted on purpose
@@ -108,7 +131,8 @@ def test_set_tank_populates_block_selector(qapp, monkeypatch, tmp_path) -> None:
     from tdt_ephyviewer_explorer.config_schema import load_config
 
     # No stores, so auto-selecting the first block builds an empty tree (no real tdt).
-    monkeypatch.setattr(cw_mod, "scan_block", lambda p: [])
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(cw_mod, "scan_block", lambda p, headers=None: [])
     cw = ControlWindow(load_config())
     cw.set_tank(_make_tank(tmp_path))
 
@@ -123,10 +147,11 @@ def test_selecting_block_loads_its_stores(qapp, monkeypatch, tmp_path) -> None:
     from tdt_ephyviewer_explorer.config_schema import load_config
     from tdt_ephyviewer_explorer.stores import StoreInfo
 
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
     monkeypatch.setattr(
         cw_mod,
         "scan_block",
-        lambda p: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
     )
     cw = ControlWindow(load_config())
     cw.set_tank(_make_tank(tmp_path))  # auto-selects blockA-1 -> loads its stores
@@ -144,7 +169,8 @@ def test_set_tank_switch_reloads_same_named_block(qapp, monkeypatch, tmp_path) -
     from tdt_ephyviewer_explorer.config_schema import load_config
 
     calls: list[Path] = []
-    monkeypatch.setattr(cw_mod, "scan_block", lambda p: (calls.append(Path(p)), [])[1])
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(cw_mod, "scan_block", lambda p, headers=None: (calls.append(Path(p)), [])[1])
 
     def _tank_with_block1(root: Path) -> Path:
         root.mkdir()
@@ -169,7 +195,8 @@ def test_set_tank_with_explicit_block_loads_once(qapp, monkeypatch, tmp_path) ->
     from tdt_ephyviewer_explorer.config_schema import load_config
 
     calls: list[object] = []
-    monkeypatch.setattr(cw_mod, "scan_block", lambda p: (calls.append(p), [])[1])
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(cw_mod, "scan_block", lambda p, headers=None: (calls.append(p), [])[1])
     cw = ControlWindow(load_config())
     cw.set_tank(_make_tank(tmp_path), block="blockB-2")
     assert cw._block_path is not None and cw._block_path.name == "blockB-2"
@@ -182,10 +209,11 @@ def test_set_tank_empty_clears_previous_block(qapp, monkeypatch, tmp_path) -> No
     from tdt_ephyviewer_explorer.config_schema import load_config
     from tdt_ephyviewer_explorer.stores import StoreInfo
 
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
     monkeypatch.setattr(
         cw_mod,
         "scan_block",
-        lambda p: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
     )
     cw = ControlWindow(load_config())
     cw.set_tank(_make_tank(tmp_path))

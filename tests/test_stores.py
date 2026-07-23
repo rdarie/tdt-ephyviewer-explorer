@@ -93,3 +93,35 @@ def test_store_from_block_finds_across_groups() -> None:
 def test_store_from_block_missing_raises() -> None:
     with pytest.raises(KeyError, match="not found"):
         _store_from_block({"streams": {}}, "Nope")
+
+
+def test_load_store_reuses_headers(monkeypatch) -> None:
+    from tdt_ephyviewer_explorer import stores as stores_mod
+    from tdt_ephyviewer_explorer.stores import load_store
+
+    calls: list[dict] = []
+
+    def fake_read_block(path, **kwargs):
+        calls.append(kwargs)
+        return {"scalars": {"UDP1": "S"}}
+
+    monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
+    heads = object()
+    assert load_store(__import__("pathlib").Path("blk"), "UDP1", headers=heads) == "S"
+    assert calls[0]["store"] == ["UDP1"]
+    assert calls[0]["headers"] is heads  # reused, not re-parsed
+
+
+def test_load_store_reads_own_index_without_headers(monkeypatch) -> None:
+    from tdt_ephyviewer_explorer import stores as stores_mod
+    from tdt_ephyviewer_explorer.stores import load_store
+
+    calls: list[dict] = []
+
+    def fake_read_block(path, **kwargs):
+        calls.append(kwargs)
+        return {"scalars": {"UDP1": "S"}}
+
+    monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
+    assert load_store(__import__("pathlib").Path("blk"), "UDP1") == "S"
+    assert "headers" not in calls[0]  # backward compatible: no headers kwarg

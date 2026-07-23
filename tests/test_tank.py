@@ -20,6 +20,31 @@ def test_scan_block_maps_header_stores(monkeypatch) -> None:
     assert by_name["eS1p"].fs is None
 
 
+def test_read_headers_parses_index_once(monkeypatch) -> None:
+    from tdt_ephyviewer_explorer import tank as tank_mod
+
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        tank_mod.tdt, "read_block", lambda *a, **k: (calls.append(k), {"stores": {}})[1]
+    )
+    tank_mod.read_headers(Path("ignored"))
+    assert calls == [{"headers": 1}]  # index parsed exactly once, headers-only
+
+
+def test_scan_block_reuses_provided_headers(monkeypatch) -> None:
+    import numpy as np
+    from tdt_ephyviewer_explorer import tank as tank_mod
+
+    called: list[dict] = []
+    monkeypatch.setattr(
+        tank_mod.tdt, "read_block", lambda *a, **k: (called.append(k), {"stores": {}})[1]
+    )
+    heads = {"stores": {"Wav1": {"type_str": "streams", "fs": 1000.0, "chan": np.array([1, 2])}}}
+    infos = tank_mod.scan_block(Path("ignored"), headers=heads)
+    assert called == []  # no re-parse when headers are supplied
+    assert infos[0].name == "Wav1"
+
+
 def test_list_blocks_finds_dirs_with_tsq(tmp_path: Path) -> None:
     good = tmp_path / "blockA-1"
     good.mkdir()

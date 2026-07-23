@@ -36,7 +36,8 @@ class App:
 
     def _on_launch(self, session: Session) -> None:
         block_path = self._tank_dir / session.block
-        win = launch_block(block_path, session, self._cfg)
+        # Reuse the index the control window already parsed for this block.
+        win = launch_block(block_path, session, self._cfg, headers=self.control_window.headers)
         win.show()
         self.windows.append(win)
 

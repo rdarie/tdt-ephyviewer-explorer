@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 from pyqtgraph.parametertree import Parameter, ParameterTree
@@ -11,7 +12,7 @@ from PySide6.QtCore import Signal
 from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.session import Session, load_session, save_session
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
-from tdt_ephyviewer_explorer.tank import list_blocks, scan_block
+from tdt_ephyviewer_explorer.tank import list_blocks, read_headers, scan_block
 
 
 def build_param_tree_spec(
@@ -105,6 +106,7 @@ class ControlWindow(QtWidgets.QWidget):
         self._viewer_defaults = OmegaConf.to_container(self._cfg.viewers, resolve=True)
         self._tank_dir: Path | None = None
         self._block_path: Path | None = None
+        self._headers: Any | None = None
 
         # Global group: tank directory (readonly) + a block selector populated from
         # list_blocks(). Selecting a block rebuilds the per-store tree below.
@@ -169,6 +171,7 @@ class ControlWindow(QtWidgets.QWidget):
             self.set_block(tank_dir / chosen)
         else:
             self._block_path = None
+            self._headers = None
             self._root.clearChildren()
 
     def select_block(self, block: str) -> None:
@@ -186,13 +189,25 @@ class ControlWindow(QtWidgets.QWidget):
         if self._tank_dir is not None and value:
             self.set_block(self._tank_dir / str(value))
 
+    @property
+    def headers(self) -> Any | None:
+        """The current block's parsed ``.tsq`` headers, reused when launching.
+
+        ``None`` until a block is loaded (or after an empty tank clears it).
+        """
+        return self._headers
+
     def set_block(self, block_path: Path) -> None:
         """Scan a block and rebuild the parameter tree for it.
+
+        Parses the block index once here and keeps it (see :attr:`headers`) so the
+        subsequent launch can reuse it instead of re-parsing.
 
         :param block_path: Path to the block directory.
         """
         self._block_path = block_path
-        resolved = [resolve_role(i, self._rules) for i in scan_block(block_path)]
+        self._headers = read_headers(block_path)
+        resolved = [resolve_role(i, self._rules) for i in scan_block(block_path, headers=self._headers)]
         spec = build_param_tree_spec(resolved, self._viewer_defaults)
         self._root.clearChildren()
         self._root.addChildren(spec)

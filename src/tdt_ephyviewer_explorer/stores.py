@@ -156,15 +156,20 @@ def _store_from_block(blk: object, name: str) -> Any:
     raise KeyError(f"store {name!r} not found in loaded block")
 
 
-def load_store(block_path: Path, name: str) -> Any:
+def load_store(block_path: Path, name: str, headers: Any | None = None) -> Any:
     """Load a single store's full data from a block.
 
     :param block_path: Path to the block directory.
     :param name: Store code to load.
+    :param headers: Pre-parsed headers (see :func:`~tank.read_headers`) to reuse,
+        avoiding a re-parse of the block's ``.tsq`` index; ``None`` parses it here.
     :returns: The raw tdt store object (from ``streams``/``scalars``/``epocs``/``snips``).
     :raises KeyError: If the store is not present in the block.
     """
-    blk = tdt.read_block(str(block_path), store=[name])
+    kwargs: dict[str, Any] = {"store": [name]}
+    if headers is not None:
+        kwargs["headers"] = headers
+    blk = tdt.read_block(str(block_path), **kwargs)
     try:
         return _store_from_block(blk, name)
     except KeyError:

@@ -40,14 +40,15 @@ class _FakeScalar:
 
 
 def _patch_block(monkeypatch, loads):
-    """Patch scan_block/load_store so plan_views runs without real tdt or a block."""
+    """Patch read_headers/scan_block/load_store so plan_views runs without real tdt."""
+    monkeypatch.setattr(launcher_mod, "read_headers", lambda p: None)
     monkeypatch.setattr(
         launcher_mod,
         "scan_block",
-        lambda p: [StoreInfo("UDP1", "scalars", None, 1, None, 0.0, None)],
+        lambda p, headers=None: [StoreInfo("UDP1", "scalars", None, 1, None, 0.0, None)],
     )
 
-    def fake_load(block_path, name):
+    def fake_load(block_path, name, headers=None):
         loads.append(name)
         return _FakeScalar()
 
@@ -74,6 +75,64 @@ def test_plan_views_loads_store_once_for_multiple_viewers(monkeypatch) -> None:
 
     assert isinstance(plans[0].source, InMemoryEventSource)
     assert isinstance(plans[1].source, InMemorySpikeSource)
+
+
+def test_plan_views_parses_block_index_once(monkeypatch) -> None:
+    # Regression: two viewers on one store must parse the .tsq index a single time
+    # (one header read, reused for the store load) rather than re-parsing per read.
+    from tdt_ephyviewer_explorer import stores as stores_mod
+    from tdt_ephyviewer_explorer import tank as tank_mod
+
+    heads = {"stores": {"UDP1": {"type_str": "scalars", "chan": np.array([1])}}}
+    block = {"scalars": {"UDP1": _FakeScalar()}}
+    calls: list[dict] = []
+
+    def fake_read_block(path, **kwargs):
+        calls.append(kwargs)
+        return heads if kwargs.get("headers") == 1 else block
+
+    monkeypatch.setattr(tank_mod.tdt, "read_block", fake_read_block)
+    monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
+    session = Session(
+        block="blk",
+        attachments={
+            "UDP1": [
+                {"viewer_type": "eventlist", "delay_ms": 0.0, "probe_path": None, "params": {}},
+                {"viewer_type": "spiketrain", "delay_ms": 0.0, "probe_path": None, "params": {}},
+            ]
+        },
+    )
+    plan_views(Path("tank/blk"), session, load_config())
+    index_parses = [c for c in calls if c.get("headers") == 1]
+    assert len(index_parses) == 1  # index parsed exactly once
+    store_reads = [c for c in calls if "store" in c]
+    assert store_reads and all(c.get("headers") is heads for c in store_reads)  # loads reuse it
+
+
+def test_plan_views_uses_supplied_headers(monkeypatch) -> None:
+    # When the caller (control window) already parsed the index, plan_views must not
+    # parse it again.
+    from tdt_ephyviewer_explorer import stores as stores_mod
+    from tdt_ephyviewer_explorer import tank as tank_mod
+
+    heads = {"stores": {"UDP1": {"type_str": "scalars", "chan": np.array([1])}}}
+    block = {"scalars": {"UDP1": _FakeScalar()}}
+    calls: list[dict] = []
+
+    def fake_read_block(path, **kwargs):
+        calls.append(kwargs)
+        return heads if kwargs.get("headers") == 1 else block
+
+    monkeypatch.setattr(tank_mod.tdt, "read_block", fake_read_block)
+    monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
+    session = Session(
+        block="blk",
+        attachments={
+            "UDP1": [{"viewer_type": "eventlist", "delay_ms": 0.0, "probe_path": None, "params": {}}]
+        },
+    )
+    plan_views(Path("tank/blk"), session, load_config(), headers=heads)
+    assert [c for c in calls if c.get("headers") == 1] == []  # no fresh header parse
 
 
 def test_plan_views_missing_store_raises(monkeypatch) -> None:
