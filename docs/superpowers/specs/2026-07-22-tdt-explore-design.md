@@ -161,7 +161,8 @@ No hardcoded hyperparameters: all viewer defaults, patterns, and schemas live in
 
 `ParameterTree` layout:
 
-- **Global group:** preset selector; tank dir (readonly); block selector.
+- **Global group:** tank dir (readonly) + block selector (dropdown from `list_blocks`,
+  auto-selects the first block). *(Preset selector deferred — see §12.)*
 - **Per-store group** (one per store in the selected block):
   - readonly info: role, tdt type, fs, channels, duration.
   - `delay_ms` (float ms; 0 = time reference). Unit-agnostic so it applies to every store
@@ -249,3 +250,8 @@ Add `probeinterface` to `pyproject.toml`. Existing: ephyviewer fork, `tdt`, `PyS
 - Persisting live ephyviewer window state via QSettings.
 - Promoting in-GUI column naming to reusable schema presets.
 - Combining multiple stores into a single viewer (v1 is one store per viewer).
+- In-GUI Hydra **preset selector** in the Global group (v1 seeds from the default preset;
+  the block selector is implemented, the preset dropdown is not).
+- Per-store `formatter` dropdown in the control tree (v1 uses the role's configured
+  formatter; no in-GUI override).
+- GUI error dialogs for load/scan failures (v1 fails loud via exceptions, not Qt dialogs).
