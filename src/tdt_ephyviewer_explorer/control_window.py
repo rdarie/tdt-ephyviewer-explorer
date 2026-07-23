@@ -138,31 +138,51 @@ class ControlWindow(QtWidgets.QWidget):
         layout.addWidget(save_btn)
         layout.addWidget(load_btn)
 
-    def set_tank(self, tank_dir: Path) -> None:
-        """Point the window at a tank and populate the block selector.
+    def set_tank(self, tank_dir: Path, block: str | None = None) -> None:
+        """Point the window at a tank, populate the block selector, and load a block.
 
-        Lists the tank's blocks and, if any exist, selects the first (which loads
-        its stores via :meth:`set_block`).
+        Loading is done explicitly here rather than via the selector's change signal:
+        pyqtgraph suppresses ``sigValueChanged`` when the value is unchanged, so
+        switching to a tank whose chosen block shares a name with the previous
+        selection would otherwise silently fail to reload. An empty tank clears any
+        previously loaded block.
 
         :param tank_dir: Synapse tank directory.
+        :param block: Block name to load; defaults to the first listed block.
         """
         self._tank_dir = tank_dir
         self._global_root.child("tank").setValue(str(tank_dir))
         names = [p.name for p in list_blocks(tank_dir)]
+        chosen = block if block in names else (names[0] if names else None)
+
+        # Update the selector programmatically without firing the user-change handler,
+        # then load exactly once (or clear, for an empty tank).
         block_param = self._global_root.child("block")
-        block_param.setLimits(names)
-        if names:
-            block_param.setValue(names[0])  # fires _on_block_changed -> set_block
+        block_param.sigValueChanged.disconnect(self._on_block_changed)
+        try:
+            block_param.setLimits(names)
+            block_param.setValue(chosen)
+        finally:
+            block_param.sigValueChanged.connect(self._on_block_changed)
+
+        if chosen is not None:
+            self.set_block(tank_dir / chosen)
+        else:
+            self._block_path = None
+            self._root.clearChildren()
 
     def select_block(self, block: str) -> None:
-        """Select a block by name in the selector (loading its stores).
+        """Select a different block by name, loading its stores.
+
+        Intended for switching blocks after :meth:`set_tank`; setting the selector
+        value fires :meth:`_on_block_changed` (a no-op if already selected).
 
         :param block: Block directory name (must be one of the listed blocks).
         """
         self._global_root.child("block").setValue(block)
 
-    def _on_block_changed(self, _param: object, value: object) -> None:
-        """Load the newly selected block's stores."""
+    def _on_block_changed(self, _param: Parameter, value: str | None) -> None:
+        """Load the newly (user-)selected block's stores."""
         if self._tank_dir is not None and value:
             self.set_block(self._tank_dir / str(value))
 

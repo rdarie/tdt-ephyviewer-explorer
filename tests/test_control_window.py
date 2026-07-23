@@ -132,3 +132,66 @@ def test_selecting_block_loads_its_stores(qapp, monkeypatch, tmp_path) -> None:
     cw.set_tank(_make_tank(tmp_path))  # auto-selects blockA-1 -> loads its stores
     assert [c.name() for c in cw._root.children()] == ["Wav1"]
     assert cw._block_path == tmp_path / "blockA-1"
+
+
+def test_set_tank_switch_reloads_same_named_block(qapp, monkeypatch, tmp_path) -> None:
+    # Regression: switching to a tank whose chosen block shares a name with the
+    # previous selection must still reload (pyqtgraph suppresses unchanged-value signals).
+    from pathlib import Path
+
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+
+    calls: list[Path] = []
+    monkeypatch.setattr(cw_mod, "scan_block", lambda p: (calls.append(Path(p)), [])[1])
+
+    def _tank_with_block1(root: Path) -> Path:
+        root.mkdir()
+        blk = root / "Block-1"
+        blk.mkdir()
+        (blk / "Block-1.tsq").write_bytes(b"")
+        return root
+
+    tank_a = _tank_with_block1(tmp_path / "A")
+    tank_b = _tank_with_block1(tmp_path / "B")
+    cw = ControlWindow(load_config())
+    cw.set_tank(tank_a)
+    assert cw._block_path == tank_a / "Block-1"
+    cw.set_tank(tank_b)  # same first-block name
+    assert cw._block_path == tank_b / "Block-1"
+    assert calls[-1] == tank_b / "Block-1"
+
+
+def test_set_tank_with_explicit_block_loads_once(qapp, monkeypatch, tmp_path) -> None:
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+
+    calls: list[object] = []
+    monkeypatch.setattr(cw_mod, "scan_block", lambda p: (calls.append(p), [])[1])
+    cw = ControlWindow(load_config())
+    cw.set_tank(_make_tank(tmp_path), block="blockB-2")
+    assert cw._block_path is not None and cw._block_path.name == "blockB-2"
+    assert len(calls) == 1  # loaded the requested block once, no first-then-switch double scan
+
+
+def test_set_tank_empty_clears_previous_block(qapp, monkeypatch, tmp_path) -> None:
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    cw.set_tank(_make_tank(tmp_path))
+    assert [c.name() for c in cw._root.children()] == ["Wav1"]
+    empty = tmp_path / "empty_tank"
+    empty.mkdir()
+    cw.set_tank(empty)  # no blocks -> clear stale state
+    assert cw._block_path is None
+    assert list(cw._root.children()) == []

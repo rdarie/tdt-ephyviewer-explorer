@@ -32,9 +32,7 @@ class App:
         :returns: None.
         """
         self._tank_dir = tank_dir
-        self.control_window.set_tank(tank_dir)
-        if block is not None:
-            self.control_window.select_block(block)
+        self.control_window.set_tank(tank_dir, block)
 
     def _on_launch(self, session: Session) -> None:
         block_path = self._tank_dir / session.block
