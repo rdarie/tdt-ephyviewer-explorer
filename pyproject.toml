@@ -24,11 +24,13 @@ dev = [
     "pytest",
 ]
 
-# Dev mode: use the local editable checkout of ephyviewer.
-#   uv sync              -> ephyviewer from the local path below (editable)
-#   uv sync --no-sources -> ephyviewer from the git fork (@master)
+# Dev mode: use a local editable checkout of ephyviewer, expected as a sibling
+# directory (../ephyviewer). The path is relative to this pyproject.toml, so it is
+# portable across machines that follow that layout — no absolute paths.
+#   uv sync              -> ephyviewer from ../ephyviewer (editable)
+#   uv sync --no-sources -> ephyviewer from the git fork (@master), no local checkout needed
 [tool.uv.sources]
-ephyviewer = { path = "C:/Users/MBO/Documents/GitHub/ephyviewer", editable = true }
+ephyviewer = { path = "../ephyviewer", editable = true }
 
 [build-system]
 requires = ["uv_build>=0.9,<0.10"]
