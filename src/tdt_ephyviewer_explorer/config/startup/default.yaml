@@ -1,0 +1,8 @@
+# @package _global_
+startup:
+  # Trigger MainViewer.auto_scale() once after a block is launched (propagates to
+  # every viewer that supports auto-scale: trace / timefreq / spectrogram).
+  auto_scale: true
+  # combo_cmap entry auto-applied to each TraceViewer on launch (one of
+  # Accent, Dark2, jet, prism, hsv); null to leave channel colors untouched.
+  trace_color_scheme: Accent

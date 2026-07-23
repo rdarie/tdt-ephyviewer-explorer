@@ -82,22 +82,63 @@ def plan_views(
     return plans
 
 
+def _apply_trace_color_scheme(view: Any, scheme_name: str) -> None:
+    """Auto-apply a named colormap to a TraceViewer via its params controller.
+
+    Selects ``scheme_name`` in the controller's ``combo_cmap`` and triggers the
+    same progressive coloring the "Progressive" button performs. Viewers without a
+    color-scheme control (e.g. epoch/event/spike) are skipped.
+
+    :param view: A built ephyviewer viewer.
+    :param scheme_name: Colormap name; must be one of the controller's combo entries.
+    :raises ValueError: If ``scheme_name`` is not among the controller's schemes.
+    """
+    controller = getattr(view, "params_controller", None)
+    combo = getattr(controller, "combo_cmap", None)
+    if combo is None:
+        return  # not a color-capable viewer
+    names = [combo.itemText(i) for i in range(combo.count())]
+    if scheme_name not in names:
+        raise ValueError(
+            f"startup.trace_color_scheme {scheme_name!r} not in available schemes {names}"
+        )
+    combo.setCurrentIndex(names.index(scheme_name))
+    controller.on_automatic_color()
+
+
+def apply_startup(win: Any, views: list[Any], startup: dict[str, Any]) -> None:
+    """Apply one-time startup behavior to a freshly populated block window (Qt-free).
+
+    :param win: The populated MainViewer (only ``auto_scale`` is invoked here).
+    :param views: The built viewers, in launch order.
+    :param startup: The ``startup`` config section (``trace_color_scheme``, ``auto_scale``).
+    """
+    scheme = startup.get("trace_color_scheme")
+    if scheme:
+        for view in views:
+            _apply_trace_color_scheme(view, scheme)
+    if startup.get("auto_scale", False):
+        win.auto_scale()  # MainViewer fans out to every viewer that supports it
+
+
 def launch_block(
     block_path: Path, session: Session, cfg: DictConfig, headers: Any | None = None
 ) -> MainViewer:
     """Build and populate a MainViewer for one block from a session.
 
     Thin Qt wrapper over :func:`plan_views`: docks the first viewer bare and
-    tabifies the rest with it.
+    tabifies the rest with it, then applies startup behavior (see
+    :func:`apply_startup`).
 
     :param block_path: Block directory.
     :param session: The composition to realize.
-    :param cfg: Composed Hydra config (viewers, roles, schemas).
+    :param cfg: Composed Hydra config (viewers, roles, schemas, startup).
     :param headers: Pre-parsed headers (see :func:`~tank.read_headers`) to reuse.
     :returns: The populated (but not yet shown) MainViewer.
     """
     win = MainViewer(debug=False)
     win.setWindowTitle(block_path.name)
+    views: list[Any] = []
     first_name: str | None = None
     for plan in plan_views(block_path, session, cfg, headers=headers):
         view = build_viewer(plan.viewer_type, plan.source, plan.name, plan.params)
@@ -106,4 +147,7 @@ def launch_block(
             first_name = plan.name
         else:
             win.add_view(view, tabify_with=first_name)
+        views.append(view)
+    startup = OmegaConf.to_container(cfg.startup, resolve=True) if "startup" in cfg else {}
+    apply_startup(win, views, startup)
     return win

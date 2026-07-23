@@ -24,6 +24,25 @@ def test_build_viewer_returns_trace_viewer(qapp) -> None:
     assert view.params["display_labels"] is True
 
 
+def test_apply_trace_color_scheme_on_real_viewer(qapp) -> None:
+    # Contract check: ephyviewer's real TraceViewer controller exposes combo_cmap
+    # + on_automatic_color, and applying a scheme recolors channels distinctly.
+    from tdt_ephyviewer_explorer.launcher import _apply_trace_color_scheme
+
+    class S:
+        data = np.zeros((3, 50))
+        fs = 1000.0
+        start_time = 0.0
+
+    src = build_analog_source(S(), Attachment("trace"), probe=None)
+    view = build_viewer("trace", src, name="Wav1:trace", params={})
+    _apply_trace_color_scheme(view, "jet")
+    from ephyviewer.myqt import QT
+
+    colors = {QT.QColor(view.by_channel_params[f"ch{c}", "color"]).name() for c in range(3)}
+    assert len(colors) == 3  # progressive colormap gave each channel its own color
+
+
 # --- plan_views: Qt-free orchestration (no MainViewer, so safe headless) ---
 from pathlib import Path
 
@@ -143,3 +162,88 @@ def test_plan_views_missing_store_raises(monkeypatch) -> None:
     )
     with pytest.raises(KeyError, match="not present"):
         plan_views(Path("tank/blk"), session, load_config())
+
+
+# --- startup behavior: auto-scale + default trace color scheme (Qt-free via fakes) ---
+from tdt_ephyviewer_explorer.launcher import _apply_trace_color_scheme, apply_startup
+
+_CMAPS = ["Accent", "Dark2", "jet", "prism", "hsv"]
+
+
+class _FakeCombo:
+    def __init__(self, items):
+        self._items = list(items)
+        self._current = 0
+
+    def count(self):
+        return len(self._items)
+
+    def itemText(self, i):
+        return self._items[i]
+
+    def setCurrentIndex(self, i):
+        self._current = i
+
+    def currentText(self):
+        return self._items[self._current]
+
+
+class _FakeController:
+    def __init__(self, cmaps):
+        self.combo_cmap = _FakeCombo(cmaps)
+        self.applied = None
+
+    def on_automatic_color(self):
+        self.applied = self.combo_cmap.currentText()
+
+
+class _FakeView:
+    def __init__(self, controller=None):
+        self.params_controller = controller
+
+
+class _FakeWin:
+    def __init__(self):
+        self.auto_scaled = 0
+
+    def auto_scale(self):
+        self.auto_scaled += 1
+
+
+def test_apply_trace_color_scheme_selects_and_applies() -> None:
+    ctrl = _FakeController(_CMAPS)
+    _apply_trace_color_scheme(_FakeView(ctrl), "Dark2")
+    assert ctrl.combo_cmap.currentText() == "Dark2"
+    assert ctrl.applied == "Dark2"  # controller applied the selected scheme
+
+
+def test_apply_trace_color_scheme_skips_non_color_viewer() -> None:
+    # Non-trace viewers have no controller or no combo_cmap: skip, don't raise.
+    _apply_trace_color_scheme(_FakeView(None), "Accent")
+
+    class _NoCombo:
+        pass
+
+    _apply_trace_color_scheme(_FakeView(_NoCombo()), "Accent")
+
+
+def test_apply_trace_color_scheme_unknown_scheme_raises() -> None:
+    view = _FakeView(_FakeController(_CMAPS))
+    with pytest.raises(ValueError, match="nope"):
+        _apply_trace_color_scheme(view, "nope")  # no silent failure
+
+
+def test_apply_startup_applies_color_and_auto_scale() -> None:
+    win = _FakeWin()
+    trace, other = _FakeView(_FakeController(_CMAPS)), _FakeView(None)
+    apply_startup(win, [trace, other], {"auto_scale": True, "trace_color_scheme": "jet"})
+    assert trace.params_controller.applied == "jet"
+    assert win.auto_scaled == 1
+
+
+def test_apply_startup_disabled_does_nothing() -> None:
+    win = _FakeWin()
+    trace = _FakeView(_FakeController(_CMAPS))
+    apply_startup(win, [trace], {"auto_scale": False, "trace_color_scheme": None})
+    assert trace.params_controller.applied is None
+    assert win.auto_scaled == 0
