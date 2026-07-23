@@ -11,7 +11,7 @@ from PySide6.QtCore import Signal
 from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.session import Session, load_session, save_session
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
-from tdt_ephyviewer_explorer.tank import scan_block
+from tdt_ephyviewer_explorer.tank import list_blocks, scan_block
 
 
 def build_param_tree_spec(
@@ -103,7 +103,23 @@ class ControlWindow(QtWidgets.QWidget):
         self._cfg = cfg if cfg is not None else load_config()
         self._rules = rules_from_config(self._cfg)
         self._viewer_defaults = OmegaConf.to_container(self._cfg.viewers, resolve=True)
+        self._tank_dir: Path | None = None
         self._block_path: Path | None = None
+
+        # Global group: tank directory (readonly) + a block selector populated from
+        # list_blocks(). Selecting a block rebuilds the per-store tree below.
+        self._global_tree = ParameterTree(showHeader=False)
+        self._global_root = Parameter.create(
+            name="global",
+            type="group",
+            children=[
+                {"name": "tank", "type": "str", "value": "", "readonly": True},
+                {"name": "block", "type": "list", "limits": [], "value": None},
+            ],
+        )
+        self._global_tree.setParameters(self._global_root, showTop=False)
+        self._global_root.child("block").sigValueChanged.connect(self._on_block_changed)
+
         self._tree = ParameterTree()
         self._root = Parameter.create(name="stores", type="group", children=[])
         self._tree.setParameters(self._root, showTop=False)
@@ -111,6 +127,7 @@ class ControlWindow(QtWidgets.QWidget):
         launch_btn = QtWidgets.QPushButton("Launch window")
         launch_btn.clicked.connect(self._on_launch)
         layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self._global_tree)
         layout.addWidget(self._tree)
         layout.addWidget(launch_btn)
 
@@ -120,6 +137,34 @@ class ControlWindow(QtWidgets.QWidget):
         load_btn.clicked.connect(self._on_load)
         layout.addWidget(save_btn)
         layout.addWidget(load_btn)
+
+    def set_tank(self, tank_dir: Path) -> None:
+        """Point the window at a tank and populate the block selector.
+
+        Lists the tank's blocks and, if any exist, selects the first (which loads
+        its stores via :meth:`set_block`).
+
+        :param tank_dir: Synapse tank directory.
+        """
+        self._tank_dir = tank_dir
+        self._global_root.child("tank").setValue(str(tank_dir))
+        names = [p.name for p in list_blocks(tank_dir)]
+        block_param = self._global_root.child("block")
+        block_param.setLimits(names)
+        if names:
+            block_param.setValue(names[0])  # fires _on_block_changed -> set_block
+
+    def select_block(self, block: str) -> None:
+        """Select a block by name in the selector (loading its stores).
+
+        :param block: Block directory name (must be one of the listed blocks).
+        """
+        self._global_root.child("block").setValue(block)
+
+    def _on_block_changed(self, _param: object, value: object) -> None:
+        """Load the newly selected block's stores."""
+        if self._tank_dir is not None and value:
+            self.set_block(self._tank_dir / str(value))
 
     def set_block(self, block_path: Path) -> None:
         """Scan a block and rebuild the parameter tree for it.

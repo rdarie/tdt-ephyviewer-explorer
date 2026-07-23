@@ -24,15 +24,17 @@ class App:
         self.control_window.launch_requested.connect(self._on_launch)
 
     def open_tank(self, tank_dir: Path, block: str | None = None) -> None:
-        """Point the control window at a tank; optionally preselect a block.
+        """Point the control window at a tank, populating its block selector.
 
         :param tank_dir: Tank directory containing block subdirectories.
-        :param block: Block name to preselect, or ``None`` to leave unselected.
+        :param block: Block name to preselect; otherwise ``set_tank`` selects the
+            first block (if any).
         :returns: None.
         """
         self._tank_dir = tank_dir
+        self.control_window.set_tank(tank_dir)
         if block is not None:
-            self.control_window.set_block(tank_dir / block)
+            self.control_window.select_block(block)
 
     def _on_launch(self, session: Session) -> None:
         block_path = self._tank_dir / session.block
