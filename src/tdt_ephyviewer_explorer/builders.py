@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+import pandas as pd
 from ephyviewer import (
     EpochViewer,
     EventList,
@@ -73,7 +74,9 @@ def build_analog_source(
         data = reorder_channels(data, probe)
         names = probe.names
     else:
-        names = [f"ch{k:0>2d}" for k in range(data.shape[0])]
+        names = getattr(store, "channel_names", None) or [
+            f"ch{k:0>2d}" for k in range(data.shape[0])
+        ]
     signals = np.ascontiguousarray(data.T)  # samples x channels
     t_start = apply_delay(store.start_time, attachment.delay_ms)  # type: ignore[attr-defined]
     return InMemoryAnalogSignalSource(signals, fs, t_start=t_start, channel_names=names)
@@ -124,6 +127,47 @@ def build_event_source(
     ts = ts + attachment.delay_ms / 1000.0
     return InMemoryEventSource(
         all_events=[{"name": attachment.viewer_type, "time": ts, "label": labels}]
+    )
+
+
+def build_event_source_from_frame(
+    df: "pd.DataFrame",
+    *,
+    time_column: str,
+    time_units: str,
+    sampling_rate: float | None,
+    label_column: str | None,
+    formatter: StimFormatter | None,
+    viewer_type: str,
+    delay_ms: float,
+) -> InMemoryEventSource:
+    """Build an event source from a processed-parquet DataFrame.
+
+    :param df: The loaded events DataFrame (one row per event).
+    :param time_column: Column holding event onset.
+    :param time_units: ``"samples"`` (converted via ``sampling_rate``) or ``"seconds"``.
+    :param sampling_rate: Required when ``time_units == "samples"``.
+    :param label_column: Column used directly for labels (takes precedence); else
+        ``formatter`` is used, else integer indices.
+    :param formatter: Row-to-label fallback formatter, or ``None``.
+    :param viewer_type: Event source name (dock key).
+    :param delay_ms: Milliseconds added to every timestamp.
+    :raises ValueError: If ``time_units == "samples"`` without a ``sampling_rate``.
+    """
+    ts = df[time_column].to_numpy(dtype=float)
+    if time_units == "samples":
+        if not sampling_rate:
+            raise ValueError("time_units='samples' requires a sampling_rate")
+        ts = ts / float(sampling_rate)
+    ts = ts + delay_ms / 1000.0
+    if label_column and label_column in df.columns:
+        labels = df[label_column].astype(str).to_numpy()
+    elif formatter is not None:
+        labels = np.array([formatter.format_row(row) for row in df.to_dict("records")])
+    else:
+        labels = np.array([str(i) for i in range(len(df))])
+    return InMemoryEventSource(
+        all_events=[{"name": viewer_type, "time": ts, "label": labels}]
     )
 
 

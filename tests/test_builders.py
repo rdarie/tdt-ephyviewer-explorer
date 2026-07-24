@@ -215,3 +215,48 @@ def test_build_source_for_epoch_and_spiketrain_on_epoch() -> None:
     sp = build_source_for(resolved, Attachment("spiketrain"), store, {})  # onset fallback
     assert isinstance(sp, InMemorySpikeSource)
     assert list(sp.all[0]["time"]) == [1.0, 2.0]
+
+
+import pandas as pd
+
+from tdt_ephyviewer_explorer.builders import build_event_source_from_frame
+from tdt_ephyviewer_explorer.formatters.base import GenericFormatter
+
+
+@dataclass
+class FakeNamedStream:
+    data: np.ndarray
+    fs: float
+    start_time: float
+    channel_names: list
+
+
+def test_build_analog_source_uses_store_channel_names() -> None:
+    store = FakeNamedStream(data=np.zeros((2, 10)), fs=1000.0, start_time=0.0,
+                            channel_names=["pulse", "blanking"])
+    src = build_analog_source(store, Attachment("trace"), probe=None)
+    assert src.channel_names == ["pulse", "blanking"]
+
+
+def test_build_event_source_from_frame_samples_to_seconds_and_label() -> None:
+    df = pd.DataFrame({"timestamp_sample": [24414, 48828], "stim_site": ["E1", "E2"]})
+    src = build_event_source_from_frame(
+        df, time_column="timestamp_sample", time_units="samples",
+        sampling_rate=24414.0625, label_column="stim_site", formatter=None,
+        viewer_type="eventlist", delay_ms=0.0,
+    )
+    ev = src.all[0]
+    assert abs(ev["time"][0] - 24414 / 24414.0625) < 1e-9
+    assert list(ev["label"]) == ["E1", "E2"]
+
+
+def test_build_event_source_from_frame_delay_and_formatter_fallback() -> None:
+    df = pd.DataFrame({"timestamp": [1.0], "ampA": [100]})
+    src = build_event_source_from_frame(
+        df, time_column="timestamp", time_units="seconds", sampling_rate=None,
+        label_column=None, formatter=GenericFormatter(["ampA"]),
+        viewer_type="eventlist", delay_ms=20.0,
+    )
+    ev = src.all[0]
+    assert ev["time"][0] == 1.02
+    assert ev["label"][0] == "ampA: 100"
