@@ -8,15 +8,43 @@ from omegaconf import OmegaConf
 
 
 @dataclass
+class ProcessedSource:
+    """A processed-parquet source composed into a session.
+
+    :param path: Stored path (tank-relative when under the tank, else absolute).
+    :param kind: ``"timeseries"`` or ``"event"``.
+    :param name: Display / dock-prefix name.
+    :param attachments: Serialized attachment dicts (same shape as TDT attachments).
+    :param sampling_rate: Override used only for blob-less manually-added files.
+    :param t_start: Override for blob-less files.
+    :param time_column: Override for blob-less event files.
+    :param time_units: Override for blob-less event files.
+    :param label_column: Override for blob-less event files.
+    """
+
+    path: str
+    kind: str
+    name: str
+    attachments: list[dict] = field(default_factory=list)
+    sampling_rate: float | None = None
+    t_start: float | None = None
+    time_column: str | None = None
+    time_units: str | None = None
+    label_column: str | None = None
+
+
+@dataclass
 class Session:
     """A saved composition: which viewers are attached to which stores.
 
     :param block: Block directory name.
-    :param attachments: Store name -> list of serialized attachment dicts.
+    :param attachments: TDT store name -> list of serialized attachment dicts.
+    :param processed: Processed-parquet sources composed into this session.
     """
 
     block: str
     attachments: dict[str, list[dict]] = field(default_factory=dict)
+    processed: list[ProcessedSource] = field(default_factory=list)
 
 
 def save_session(session: Session, tank_dir: Path, name: str) -> Path:
@@ -39,4 +67,9 @@ def load_session(path: Path) -> Session:
     cfg = OmegaConf.load(path)
     container = OmegaConf.to_container(cfg, resolve=True)
     assert isinstance(container, dict)
-    return Session(block=container["block"], attachments=container["attachments"])
+    processed = [ProcessedSource(**ps) for ps in container.get("processed", [])]
+    return Session(
+        block=container["block"],
+        attachments=container["attachments"],
+        processed=processed,
+    )

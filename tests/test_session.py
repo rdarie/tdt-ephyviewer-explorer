@@ -1,7 +1,7 @@
 """Tests for session save/load."""
 from pathlib import Path
 
-from tdt_ephyviewer_explorer.session import Session, load_session, save_session
+from tdt_ephyviewer_explorer.session import ProcessedSource, Session, load_session, save_session
 
 
 def test_session_round_trip(tmp_path: Path) -> None:
@@ -17,3 +17,26 @@ def test_session_round_trip(tmp_path: Path) -> None:
     assert out.exists()
     loaded = load_session(out)
     assert loaded == session
+
+
+def test_session_processed_round_trip(tmp_path: Path) -> None:
+    session = Session(
+        block="rRew03-1",
+        attachments={"Wav1": [{"viewer_type": "trace", "delay_ms": 0.0, "probe_path": None, "params": {}}]},
+        processed=[
+            ProcessedSource(
+                path="torpedo/preprocessed/rRew03-1/raw_data_mep.parquet",
+                kind="timeseries",
+                name="raw_data_mep",
+                attachments=[{"viewer_type": "trace", "delay_ms": 0.0, "probe_path": None, "params": {}}],
+            )
+        ],
+    )
+    out = save_session(session, tmp_path, "s")
+    loaded = load_session(out)
+    assert loaded == session
+    assert isinstance(loaded.processed[0], ProcessedSource)
+
+
+def test_session_defaults_empty_processed() -> None:
+    assert Session(block="b").processed == []
