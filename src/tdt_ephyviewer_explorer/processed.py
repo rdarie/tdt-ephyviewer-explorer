@@ -7,9 +7,18 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from omegaconf import OmegaConf
 
+from tdt_ephyviewer_explorer.builders import (
+    Attachment,
+    build_analog_source,
+    build_event_source_from_frame,
+)
+from tdt_ephyviewer_explorer.formatters.base import GenericFormatter
+from tdt_ephyviewer_explorer.probe import load_probe
 from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
 
 CONTRACT_KEY = b"tdt_explore"
@@ -213,3 +222,53 @@ def from_stored_path(stored: str, tank_dir: Path) -> Path:
     """Inverse of :func:`to_stored_path`: resolve a stored path against ``tank_dir``."""
     p = Path(stored)
     return p if p.is_absolute() else (tank_dir.resolve() / p)
+
+
+class _TimeseriesAdapter:
+    """Duck-typed view of a timeseries DataFrame for :func:`~builders.build_analog_source`."""
+
+    def __init__(self, df: pd.DataFrame, info: ProcessedInfo) -> None:
+        self.data = df.to_numpy(dtype=float).T  # (n_channels, n_samples), bool->float
+        self.fs = info.sampling_rate
+        self.start_time = info.t_start
+        self.channel_names = info.channel_names or [str(c) for c in df.columns]
+
+
+def build_processed_source(info: ProcessedInfo, attachment: Attachment, cfg: Any) -> object:
+    """Load a processed parquet and build the ephyviewer source for one attachment.
+
+    :param info: The classified processed-parquet info.
+    :param attachment: The viewer attachment (viewer type, delay, probe, params).
+    :param cfg: Composed config (uses ``cfg.schemas`` for event label fallback).
+    :returns: An ephyviewer source.
+    :raises ValueError: If the attachment's viewer type is invalid for the role, or
+        a timeseries lacks a sampling rate.
+    """
+    if attachment.viewer_type not in info.viewers:
+        raise ValueError(
+            f"viewer {attachment.viewer_type!r} not valid for kind {info.kind!r}"
+        )
+    df = pd.read_parquet(info.path)
+    if info.kind == "timeseries":
+        if not info.sampling_rate:
+            raise ValueError(f"timeseries {info.name!r} has no sampling_rate")
+        store = _TimeseriesAdapter(df, info)
+        probe = load_probe(attachment.probe_path) if attachment.probe_path else None
+        return build_analog_source(store, attachment, probe)
+    # event
+    formatter = None
+    if not info.label_column and info.schema:
+        schemas = OmegaConf.to_container(cfg.schemas, resolve=True)
+        columns = list(schemas.get(info.schema, []))
+        if columns:
+            formatter = GenericFormatter(columns)
+    return build_event_source_from_frame(
+        df,
+        time_column=info.time_column,
+        time_units=info.time_units,
+        sampling_rate=info.sampling_rate,
+        label_column=info.label_column,
+        formatter=formatter,
+        viewer_type=attachment.viewer_type,
+        delay_ms=attachment.delay_ms,
+    )

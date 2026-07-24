@@ -136,3 +136,53 @@ def test_stored_path_absolute_when_outside_tank(tmp_path: Path) -> None:
     stored = to_stored_path(outside, tmp_path)
     assert Path(stored).is_absolute()
     assert from_stored_path(stored, tmp_path) == outside
+
+
+from tdt_ephyviewer_explorer.builders import Attachment
+from tdt_ephyviewer_explorer.processed import build_processed_source
+
+
+def test_build_processed_source_timeseries(tmp_path: Path) -> None:
+    p = tmp_path / "raw_data_mep.parquet"
+    blob = {"contract_version": 1, "kind": "timeseries", "sampling_rate": 1000.0,
+            "t_start": 0.5, "channel_names": ["a", "b"], "units": "uV"}
+    _write_parquet(p, pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]}), blob=blob)
+    info = classify(p, load_config())
+    src = build_processed_source(info, Attachment("trace", delay_ms=10.0), load_config())
+    assert src.signals.shape == (3, 2)          # samples x channels
+    assert src.t_start == 0.51                    # 0.5 + 10 ms
+    assert src.channel_names == ["a", "b"]
+
+
+def test_build_processed_source_boolean_timeseries(tmp_path: Path) -> None:
+    p = tmp_path / "stim_synch.parquet"
+    blob = {"contract_version": 1, "kind": "timeseries", "sampling_rate": 1000.0,
+            "t_start": 0.0, "channel_names": ["pulse", "blanking"]}
+    _write_parquet(p, pd.DataFrame({"pulse": [True, False], "blanking": [False, True]}), blob=blob)
+    info = classify(p, load_config())
+    src = build_processed_source(info, Attachment("trace"), load_config())
+    assert src.signals.shape == (2, 2)
+    assert src.signals.dtype.kind == "f"          # bool cast to float
+
+
+def test_build_processed_source_event(tmp_path: Path) -> None:
+    p = tmp_path / "stim_info_per_pulse.parquet"
+    blob = {"contract_version": 1, "kind": "event", "time_column": "timestamp_sample",
+            "time_units": "samples", "sampling_rate": 1000.0, "label_column": "stim_site"}
+    _write_parquet(p, pd.DataFrame({"timestamp_sample": [1000, 2000], "stim_site": ["E1", "E2"]}), blob=blob)
+    info = classify(p, load_config())
+    src = build_processed_source(info, Attachment("eventlist"), load_config())
+    ev = src.all[0]
+    assert list(ev["time"]) == [1.0, 2.0]
+    assert list(ev["label"]) == ["E1", "E2"]
+
+
+def test_build_processed_source_rejects_invalid_viewer(tmp_path: Path) -> None:
+    p = tmp_path / "raw_data.parquet"
+    blob = {"contract_version": 1, "kind": "timeseries", "sampling_rate": 1000.0,
+            "t_start": 0.0, "channel_names": ["a"]}
+    _write_parquet(p, pd.DataFrame({"a": [1.0]}), blob=blob)
+    info = classify(p, load_config())
+    import pytest
+    with pytest.raises(ValueError, match="not valid"):
+        build_processed_source(info, Attachment("eventlist"), load_config())
