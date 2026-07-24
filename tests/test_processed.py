@@ -98,3 +98,41 @@ def test_classify_skips_multiindex_feature_table(tmp_path: Path) -> None:
                       index=pd.MultiIndex.from_tuples([(1, "a"), (2, "b")], names=["ts", "site"]))
     _write_parquet(p, df)
     assert classify(p, load_config()) is None
+
+
+from tdt_ephyviewer_explorer.processed import (
+    from_stored_path,
+    scan_preprocessed,
+    to_stored_path,
+)
+
+
+def test_scan_preprocessed_returns_only_tagged(tmp_path: Path) -> None:
+    block = "rRew03-1"
+    pdir = tmp_path / "torpedo" / "preprocessed" / block
+    pdir.mkdir(parents=True)
+    _write_parquet(pdir / "raw_data.parquet",
+                   pd.DataFrame({"0": [1.0]}),
+                   blob={"contract_version": 1, "kind": "timeseries",
+                         "sampling_rate": 24414.0625, "t_start": 0.0, "channel_names": ["0"]})
+    _write_parquet(pdir / "untagged.parquet", pd.DataFrame({"0": [1.0]}))  # no blob -> skipped
+    infos = scan_preprocessed(tmp_path, block, load_config())
+    assert [i.name for i in infos] == ["raw_data"]
+
+
+def test_scan_preprocessed_missing_dir_is_empty(tmp_path: Path) -> None:
+    assert scan_preprocessed(tmp_path, "nope", load_config()) == []
+
+
+def test_stored_path_relative_under_tank(tmp_path: Path) -> None:
+    p = tmp_path / "torpedo" / "preprocessed" / "b" / "raw_data.parquet"
+    stored = to_stored_path(p, tmp_path)
+    assert stored == "torpedo/preprocessed/b/raw_data.parquet"
+    assert from_stored_path(stored, tmp_path) == p
+
+
+def test_stored_path_absolute_when_outside_tank(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "elsewhere" / "x.parquet"
+    stored = to_stored_path(outside, tmp_path)
+    assert Path(stored).is_absolute()
+    assert from_stored_path(stored, tmp_path) == outside

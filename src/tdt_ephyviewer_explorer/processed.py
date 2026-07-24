@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -168,3 +169,47 @@ def classify(path: Path, cfg: Any) -> ProcessedInfo | None:
                 None, "seconds", None, None, None, VALID_VIEWERS["timeseries"],
             )
     return None
+
+
+def scan_preprocessed(tank_dir: Path, block: str, cfg: Any) -> list[ProcessedInfo]:
+    """Scan ``<tank>/<preprocessed_subpath>/<block>/`` and classify its parquets.
+
+    Auto-discovery is contract-only: files without a ``tdt_explore`` blob are
+    skipped (the producer tags everything intended for the viewer). Names matching
+    ``cfg.processed.ignore_globs`` are also skipped.
+
+    :param tank_dir: The tank directory.
+    :param block: Block directory name (dataset dirs are 1:1 with block names).
+    :param cfg: Composed config.
+    :returns: Classified infos, sorted by name.
+    """
+    pdir = tank_dir / str(cfg.processed.preprocessed_subpath) / block
+    if not pdir.is_dir():
+        return []
+    ignore = list(cfg.processed.ignore_globs)
+    infos: list[ProcessedInfo] = []
+    for path in sorted(pdir.glob("*.parquet")):
+        if any(fnmatch(path.name, pat) for pat in ignore):
+            continue
+        if read_contract(path) is None:  # blob-only auto-scan
+            continue
+        info = classify(path, cfg)
+        if info is not None:
+            infos.append(info)
+    return infos
+
+
+def to_stored_path(abs_path: Path, tank_dir: Path) -> str:
+    """Serialize a parquet path: tank-relative (POSIX) if under ``tank_dir``, else absolute."""
+    abs_path = abs_path.resolve()
+    tank_dir = tank_dir.resolve()
+    try:
+        return abs_path.relative_to(tank_dir).as_posix()
+    except ValueError:
+        return str(abs_path)
+
+
+def from_stored_path(stored: str, tank_dir: Path) -> Path:
+    """Inverse of :func:`to_stored_path`: resolve a stored path against ``tank_dir``."""
+    p = Path(stored)
+    return p if p.is_absolute() else (tank_dir.resolve() / p)
