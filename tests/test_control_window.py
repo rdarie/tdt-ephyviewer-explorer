@@ -203,6 +203,55 @@ def test_set_tank_with_explicit_block_loads_once(qapp, monkeypatch, tmp_path) ->
     assert len(calls) == 1  # loaded the requested block once, no first-then-switch double scan
 
 
+def test_build_processed_param_spec_group() -> None:
+    from pathlib import Path
+
+    from tdt_ephyviewer_explorer.control_window import build_processed_param_spec
+    from tdt_ephyviewer_explorer.processed import ProcessedInfo
+    from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
+
+    info = ProcessedInfo(
+        path=Path("torpedo/preprocessed/blk/raw_data_mep.parquet"),
+        kind="timeseries", role="timeseries", name="raw_data_mep",
+        sampling_rate=24414.0625, t_start=0.0, channel_names=["a", "b"],
+        time_column=None, time_units="seconds", label_column=None, schema=None,
+        units="uV", viewers=VALID_VIEWERS["timeseries"],
+    )
+    spec = build_processed_param_spec([info], {"trace": {}})
+    grp = spec[0]
+    assert grp["name"] == "raw_data_mep"
+    names = {c["name"]: c for c in grp["children"]}
+    assert names["source_path"]["readonly"] is True
+    assert names["source_kind"]["value"] == "timeseries"
+    assert "probe_file" in names  # timeseries -> probe controls
+    viewers = next(c for c in grp["children"] if c["name"] == "Viewers")
+    assert "trace" in {c["name"] for c in viewers["children"]}
+
+
+def test_spec_to_session_emits_processed() -> None:
+    from tdt_ephyviewer_explorer.control_window import spec_to_session
+
+    state = {
+        "raw_data_mep": {
+            "source_path": "torpedo/preprocessed/blk/raw_data_mep.parquet",
+            "source_kind": "timeseries",
+            "source_name": "raw_data_mep",
+            "delay_ms": 0.0, "probe_file": "", "reorder": False,
+            "Viewers": {"trace": {"_enabled": True}},
+        },
+        "Wav1": {  # a normal TDT store still becomes an attachment
+            "delay_ms": 5.0, "Viewers": {"trace": {"_enabled": True}},
+        },
+    }
+    session = spec_to_session("blk", state)
+    assert list(session.attachments) == ["Wav1"]
+    assert len(session.processed) == 1
+    ps = session.processed[0]
+    assert ps.name == "raw_data_mep" and ps.kind == "timeseries"
+    assert ps.path == "torpedo/preprocessed/blk/raw_data_mep.parquet"
+    assert ps.attachments[0]["viewer_type"] == "trace"
+
+
 def test_set_tank_empty_clears_previous_block(qapp, monkeypatch, tmp_path) -> None:
     from tdt_ephyviewer_explorer import control_window as cw_mod
     from tdt_ephyviewer_explorer.control_window import ControlWindow

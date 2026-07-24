@@ -10,7 +10,8 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
 
 from tdt_ephyviewer_explorer.config_schema import load_config
-from tdt_ephyviewer_explorer.session import Session, load_session, save_session
+from tdt_ephyviewer_explorer.processed import ProcessedInfo
+from tdt_ephyviewer_explorer.session import ProcessedSource, Session, load_session, save_session
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
 from tdt_ephyviewer_explorer.tank import list_blocks, read_headers, scan_block
 
@@ -50,6 +51,40 @@ def build_param_tree_spec(
     return groups
 
 
+def build_processed_param_spec(
+    infos: list[ProcessedInfo], viewer_defaults: dict
+) -> list[dict]:
+    """Build parametertree groups for processed-parquet sources.
+
+    Each group carries readonly ``source_path``/``source_kind``/``source_name`` so
+    :func:`spec_to_session` can round-trip it into a :class:`~session.ProcessedSource`.
+
+    :param infos: Classified processed sources.
+    :param viewer_defaults: Per-viewer default params.
+    :returns: A list of group-parameter dicts.
+    """
+    groups: list[dict] = []
+    for info in infos:
+        children: list[dict] = [
+            {"name": "source_path", "type": "str", "value": str(info.path), "readonly": True},
+            {"name": "source_kind", "type": "str", "value": info.kind, "readonly": True},
+            {"name": "source_name", "type": "str", "value": info.name, "readonly": True},
+            {"name": "fs", "type": "float", "value": info.sampling_rate or 0.0, "readonly": True},
+            {"name": "delay_ms", "type": "float", "value": 0.0},
+        ]
+        if info.role == "timeseries":
+            children.append({"name": "probe_file", "type": "str", "value": ""})
+            children.append({"name": "reorder", "type": "bool", "value": False})
+        viewer_children = [
+            {"name": vt, "type": "bool", "value": False,
+             "children": _params_children(viewer_defaults.get(vt, {}))}
+            for vt in info.viewers
+        ]
+        children.append({"name": "Viewers", "type": "group", "children": viewer_children})
+        groups.append({"name": info.name, "type": "group", "children": children})
+    return groups
+
+
 def _params_children(defaults: dict) -> list[dict]:
     """Turn a flat viewer-defaults dict into parametertree children."""
     out: list[dict] = []
@@ -62,31 +97,56 @@ def _params_children(defaults: dict) -> list[dict]:
 def spec_to_session(block: str, param_state: dict) -> Session:
     """Convert a saved parametertree state into a :class:`Session`.
 
+    Groups carrying ``source_path`` become :class:`~session.ProcessedSource` entries;
+    all others are TDT store attachments.
+
     :param block: Block name.
-    :param param_state: ``{store_name: {"delay_ms": float, "probe_file": str,
-        "Viewers": {viewer_type: {"_enabled": bool, **params}}}}``.
+    :param param_state: Per-group tree state.
     :returns: The composition session (only enabled viewers included).
     """
     attachments: dict[str, list[dict]] = {}
-    for store_name, state in param_state.items():
-        viewers = state.get("Viewers", {})
-        entries: list[dict] = []
-        probe = state.get("probe_file") or None
-        for vt, vstate in viewers.items():
-            if not vstate.get("_enabled"):
-                continue
-            params = {k: v for k, v in vstate.items() if k != "_enabled"}
-            entries.append(
-                {
-                    "viewer_type": vt,
-                    "delay_ms": float(state.get("delay_ms", 0.0)),
-                    "probe_path": probe if state.get("reorder") else None,
-                    "params": params,
-                }
+    processed: list[ProcessedSource] = []
+    for name, state in param_state.items():
+        entries = _enabled_attachments(state)
+        if not entries:
+            continue
+        if "source_path" in state:
+            processed.append(
+                ProcessedSource(
+                    path=str(state["source_path"]),
+                    kind=str(state.get("source_kind", "")),
+                    name=str(state.get("source_name", name)),
+                    attachments=entries,
+                )
             )
-        if entries:
-            attachments[store_name] = entries
-    return Session(block=block, attachments=attachments)
+        else:
+            attachments[name] = entries
+    return Session(block=block, attachments=attachments, processed=processed)
+
+
+def _enabled_attachments(state: dict) -> list[dict]:
+    """Extract enabled viewer attachments from one group's tree state.
+
+    :param state: One group's tree state (``delay_ms``, optional ``probe_file``/
+        ``reorder``, and a ``Viewers`` subgroup).
+    :returns: Serialized attachment dicts for viewers with ``_enabled`` set.
+    """
+    viewers = state.get("Viewers", {})
+    probe = state.get("probe_file") or None
+    entries: list[dict] = []
+    for vt, vstate in viewers.items():
+        if not vstate.get("_enabled"):
+            continue
+        params = {k: v for k, v in vstate.items() if k != "_enabled"}
+        entries.append(
+            {
+                "viewer_type": vt,
+                "delay_ms": float(state.get("delay_ms", 0.0)),
+                "probe_path": probe if state.get("reorder") else None,
+                "params": params,
+            }
+        )
+    return entries
 
 
 class ControlWindow(QtWidgets.QWidget):
