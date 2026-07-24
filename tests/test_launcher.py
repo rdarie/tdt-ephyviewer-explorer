@@ -286,3 +286,42 @@ def test_plan_views_includes_processed_sources(tmp_path, monkeypatch) -> None:
     assert len(plans) == 1
     assert plans[0].name == "raw_data_mep:trace"
     assert plans[0].source.signals.shape == (2, 2)
+
+
+def test_plan_views_builds_blob_less_timeseries_with_sampling_rate_override(
+    tmp_path, monkeypatch
+) -> None:
+    """An UNTAGGED (blob-less) parquet must build via ProcessedSource.sampling_rate.
+
+    Regression test: spec_to_session previously dropped the sampling rate a user
+    typed into the "Add processed..." prompt, so _processed_info fell back to a
+    ProcessedInfo with sampling_rate=None and build_processed_source raised.
+    """
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from tdt_ephyviewer_explorer.session import ProcessedSource
+
+    block = "blk"
+    pdir = tmp_path / "torpedo" / "preprocessed" / block
+    pdir.mkdir(parents=True)
+    ppath = pdir / "manual_ts.parquet"
+    table = pa.Table.from_pandas(pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]}))
+    pq.write_table(table, ppath)  # no tdt_explore contract blob: blob-less/untagged
+
+    monkeypatch.setattr(launcher_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(launcher_mod, "scan_block", lambda p, headers=None: [])
+
+    session = Session(
+        block=block,
+        processed=[ProcessedSource(
+            path="torpedo/preprocessed/blk/manual_ts.parquet",
+            kind="timeseries", name="manual_ts", sampling_rate=30000.0,
+            attachments=[{"viewer_type": "trace", "delay_ms": 0.0, "probe_path": None, "params": {}}],
+        )],
+    )
+    plans = plan_views(tmp_path / block, session, load_config())
+    assert len(plans) == 1
+    assert plans[0].name == "manual_ts:trace"
+    assert plans[0].source.signals.shape == (2, 2)

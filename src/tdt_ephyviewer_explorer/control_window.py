@@ -116,12 +116,14 @@ def spec_to_session(block: str, param_state: dict) -> Session:
         if not entries:
             continue
         if "source_path" in state:
+            fs = state.get("fs")
             processed.append(
                 ProcessedSource(
                     path=str(state["source_path"]),
                     kind=str(state.get("source_kind", "")),
                     name=str(state.get("source_name", name)),
                     attachments=entries,
+                    sampling_rate=float(fs) if fs else None,
                 )
             )
         else:

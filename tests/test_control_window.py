@@ -252,6 +252,37 @@ def test_spec_to_session_emits_processed() -> None:
     assert ps.attachments[0]["viewer_type"] == "trace"
 
 
+def test_spec_to_session_wires_blob_less_sampling_rate() -> None:
+    """A blob-less timeseries group's ``fs`` must survive into ProcessedSource.
+
+    Regression test: ``spec_to_session`` used to drop the ``fs`` the user typed
+    into the "Add processed..." prompt entirely, so an untagged manually-added
+    file could never launch (see launcher._processed_info / processed.py).
+    """
+    from tdt_ephyviewer_explorer.control_window import spec_to_session
+
+    state = {
+        "manual_ts": {
+            "source_path": "torpedo/preprocessed/blk/manual_ts.parquet",
+            "source_kind": "timeseries",
+            "source_name": "manual_ts",
+            "fs": 30000.0, "delay_ms": 0.0, "probe_file": "", "reorder": False,
+            "Viewers": {"trace": {"_enabled": True}},
+        },
+        "manual_evt": {  # event-style group: fs absent/0.0 must NOT become 0.0
+            "source_path": "torpedo/preprocessed/blk/manual_evt.parquet",
+            "source_kind": "event",
+            "source_name": "manual_evt",
+            "fs": 0.0, "delay_ms": 0.0,
+            "Viewers": {"event": {"_enabled": True}},
+        },
+    }
+    session = spec_to_session("blk", state)
+    by_name = {ps.name: ps for ps in session.processed}
+    assert by_name["manual_ts"].sampling_rate == 30000.0
+    assert by_name["manual_evt"].sampling_rate is None
+
+
 def test_set_block_auto_scans_processed(qapp, monkeypatch, tmp_path) -> None:
     from pathlib import Path
 
