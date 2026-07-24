@@ -65,12 +65,13 @@ class ProcessedInfo:
     viewers: tuple[str, ...]
 
 
-def _schema_summary(path: Path) -> tuple[list[str], bool, bool]:
+def _schema_summary(schema: pa.Schema) -> tuple[list[str], bool, bool]:
     """Return ``(data_columns, is_range_index, is_multiindex)`` without loading data.
 
-    Parses the parquet schema + embedded pandas metadata only.
+    Reads embedded pandas metadata from an already-parsed schema only.
+
+    :param schema: Already-parsed parquet schema.
     """
-    schema = pq.read_schema(str(path))
     meta = schema.metadata or {}
     pandas_meta = json.loads(meta[b"pandas"]) if b"pandas" in meta else {}
     index_cols = pandas_meta.get("index_columns", [])
@@ -85,9 +86,12 @@ def _schema_summary(path: Path) -> tuple[list[str], bool, bool]:
     return columns, is_range, is_multiindex
 
 
-def _all_numeric(path: Path, columns: list[str]) -> bool:
-    """True if every named column has a numeric (int/float/bool) parquet type."""
-    schema = pq.read_schema(str(path))
+def _all_numeric(schema: pa.Schema, columns: list[str]) -> bool:
+    """True if every named column has a numeric (int/float/bool) parquet type.
+
+    :param schema: Already-parsed parquet schema.
+    :param columns: Column names to check.
+    """
     for name in columns:
         t = schema.field(name).type
         if not (pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_boolean(t)):
@@ -95,9 +99,12 @@ def _all_numeric(path: Path, columns: list[str]) -> bool:
     return True
 
 
-def _attrs_sampling_rate(path: Path) -> float | None:
-    """Read ``sampling_rate`` from a ``PANDAS_ATTRS`` metadata blob, if present."""
-    meta = pq.read_schema(str(path)).metadata or {}
+def _attrs_sampling_rate(schema: pa.Schema) -> float | None:
+    """Read ``sampling_rate`` from a ``PANDAS_ATTRS`` metadata blob, if present.
+
+    :param schema: Already-parsed parquet schema.
+    """
+    meta = schema.metadata or {}
     raw = meta.get(b"PANDAS_ATTRS")
     if raw is None:
         return None
@@ -140,7 +147,8 @@ def classify(path: Path, cfg: Any) -> ProcessedInfo | None:
     if blob is not None:
         return _info_from_contract(path, blob)
 
-    columns, is_range, is_multiindex = _schema_summary(path)
+    schema = pq.read_schema(str(path))
+    columns, is_range, is_multiindex = _schema_summary(schema)
     if is_multiindex:
         return None
     candidates = list(cfg.processed.time_column_candidates)
@@ -152,8 +160,8 @@ def classify(path: Path, cfg: Any) -> ProcessedInfo | None:
             time_col, "seconds", label if label in columns else None,
             None, None, VALID_VIEWERS["event"],
         )
-    if is_range and columns and _all_numeric(path, columns):
-        fs = _attrs_sampling_rate(path)
+    if is_range and columns and _all_numeric(schema, columns):
+        fs = _attrs_sampling_rate(schema)
         if fs is not None:
             return ProcessedInfo(
                 path, "timeseries", "timeseries", path.stem, float(fs), 0.0, None,
