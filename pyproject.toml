@@ -11,6 +11,7 @@ dependencies = [
     "PySide6",
     "numpy",
     "pandas",
+    "pyarrow",
     "hydra-core",
     "probeinterface",
     "pyqtgraph",
