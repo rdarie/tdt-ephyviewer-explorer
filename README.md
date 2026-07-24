@@ -70,6 +70,40 @@ tdt-explore --tank "/path/to/tank" --block "<block-name>"
 Per-tank sessions (your composed viewer layouts) are saved under
 `<tank>/tdt_explore/sessions/` — raw block directories are never modified.
 
+## Processed parquet ingestion
+
+Beyond TDT stores, the app loads timeseries and event tables from parquets output by preprocessing
+pipelines (e.g., tss-pipeline). Parquets must carry metadata embedded in their schema describing
+their contents — see the [contract brief](docs/notes/2026-07-23-tss-pipeline-metadata-contract-brief.md).
+
+**Auto-discovery:** On block select, the app scans `<tank>/torpedo/preprocessed/<block>/` for tagged
+parquets (files with the `tdt_explore` contract in their schema metadata). Only contract-tagged files
+are loaded; untagged parquets are skipped. Disable auto-scan via `processed.auto_scan`.
+
+**Manual addition:** The **"Add processed…"** button in the Control Window loads a parquet from any
+location. Blob-less (untagged) files are accepted; supply a sampling rate interactively.
+
+**Config keys** (`src/tdt_ephyviewer_explorer/config/processed/default.yaml`):
+- `preprocessed_subpath` — relative path under `<tank>` for auto-scan (default: `torpedo/preprocessed`)
+- `auto_scan` — enable auto-discovery on block select (default: `true`)
+- `default_sampling_rate` — fallback rate (Hz) for untagged blob-less timeseries (default: `24414.0625`)
+- `time_column_candidates` — heuristic event detection: column names to probe for timestamps in untagged
+  event tables (default: `["timestamp"]`)
+- `default_label_column` — heuristic event label: column name for per-row labels in untagged event
+  tables (default: `stim_site`)
+- `ignore_globs` — filename patterns to exclude from auto-scan (default: empty)
+
+**Smoke test against real parquets:**
+
+```bash
+# Windows (PowerShell)
+$env:TDT_EXPLORE_PREPROCESSED_BLOCK = "<tank>|<block>"; uv run pytest tests/test_processed.py::test_scan_and_build_on_real_block
+# POSIX
+TDT_EXPLORE_PREPROCESSED_BLOCK="<tank>|<block>" uv run pytest tests/test_processed.py::test_scan_and_build_on_real_block
+```
+
+Note the `|` separator in the env var.
+
 ## Configuration
 
 Viewer defaults, store-role patterns, column schemas, and stim-label formatters are Hydra
