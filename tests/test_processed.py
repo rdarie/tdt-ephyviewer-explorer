@@ -1,10 +1,12 @@
 """Tests for processed-parquet discovery, classification, and loading (Qt-free)."""
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from tdt_ephyviewer_explorer.processed import CONTRACT_KEY, read_contract
 
@@ -183,6 +185,20 @@ def test_build_processed_source_rejects_invalid_viewer(tmp_path: Path) -> None:
             "t_start": 0.0, "channel_names": ["a"]}
     _write_parquet(p, pd.DataFrame({"a": [1.0]}), blob=blob)
     info = classify(p, load_config())
-    import pytest
     with pytest.raises(ValueError, match="not valid"):
         build_processed_source(info, Attachment("eventlist"), load_config())
+
+
+@pytest.mark.skipif(
+    "TDT_EXPLORE_PREPROCESSED_BLOCK" not in os.environ,
+    reason="set TDT_EXPLORE_PREPROCESSED_BLOCK=<tank>|<block> to run against real parquets",
+)
+def test_scan_and_build_on_real_block() -> None:
+    tank_str, block = os.environ["TDT_EXPLORE_PREPROCESSED_BLOCK"].split("|")
+    tank = Path(tank_str)
+    infos = scan_preprocessed(tank, block, load_config())
+    assert infos, "expected at least one tagged parquet"
+    for info in infos:
+        vt = info.viewers[0]
+        src = build_processed_source(info, Attachment(vt), load_config())
+        assert src is not None
