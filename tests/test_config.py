@@ -14,3 +14,13 @@ def test_load_config_has_startup_defaults() -> None:
     cfg = load_config()
     assert cfg.startup.auto_scale is True
     assert cfg.startup.trace_color_scheme == "Accent"
+
+
+def test_load_config_has_processed_group() -> None:
+    cfg = load_config()
+    assert cfg.processed.preprocessed_subpath == "torpedo/preprocessed"
+    assert cfg.processed.auto_scan is True
+    assert cfg.processed.default_sampling_rate == 24414.0625
+    assert list(cfg.processed.time_column_candidates) == ["timestamp"]
+    assert cfg.processed.default_label_column == "stim_site"
+    assert list(cfg.processed.ignore_globs) == []

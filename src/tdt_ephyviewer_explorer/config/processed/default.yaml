@@ -1,0 +1,8 @@
+# @package _global_
+processed:
+  preprocessed_subpath: torpedo/preprocessed  # <tank>/<subpath>/<block>/*.parquet
+  auto_scan: true                              # scan the preprocessed dir on block select
+  default_sampling_rate: 24414.0625            # fallback for blob-less manual-add timeseries
+  time_column_candidates: ["timestamp"]        # heuristic event detection (untagged files)
+  default_label_column: stim_site              # heuristic event label column
+  ignore_globs: []                             # filename globs to skip in auto-scan

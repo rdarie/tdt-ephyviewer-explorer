@@ -3,4 +3,5 @@ defaults:
   - roles: default
   - schema: default
   - startup: default
+  - processed: default
   - _self_
