@@ -9,6 +9,12 @@ from ephyviewer import MainViewer
 from omegaconf import DictConfig, OmegaConf
 
 from tdt_ephyviewer_explorer.builders import Attachment, build_source_for, build_viewer
+from tdt_ephyviewer_explorer.processed import (
+    ProcessedInfo,
+    build_processed_source,
+    classify,
+    from_stored_path,
+)
 from tdt_ephyviewer_explorer.session import Session
 from tdt_ephyviewer_explorer.stores import load_store, resolve_role, rules_from_config
 from tdt_ephyviewer_explorer.tank import read_headers, scan_block
@@ -38,6 +44,33 @@ def _attachment_from_dict(d: dict[str, Any]) -> Attachment:
         probe_path=Path(probe) if probe else None,
         params=dict(d.get("params", {})),
     )
+
+
+def _processed_info(ps: Any, tank_dir: Path, cfg: DictConfig) -> ProcessedInfo:
+    """Resolve a :class:`~session.ProcessedSource` to a :class:`~processed.ProcessedInfo`.
+
+    Classifies the file at its stored path; applies any blob-less overrides carried
+    on the source.
+
+    :param ps: The session's ProcessedSource.
+    :param tank_dir: Tank directory (for relative-path resolution).
+    :param cfg: Composed config.
+    :raises FileNotFoundError: If the stored parquet no longer exists.
+    """
+    path = from_stored_path(ps.path, tank_dir)
+    if not path.exists():
+        raise FileNotFoundError(f"processed source {ps.path!r} not found under {tank_dir}")
+    info = classify(path, cfg)
+    if info is None:
+        from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
+        info = ProcessedInfo(
+            path=path, kind=ps.kind, role=ps.kind, name=ps.name,
+            sampling_rate=ps.sampling_rate, t_start=ps.t_start or 0.0,
+            channel_names=None, time_column=ps.time_column,
+            time_units=ps.time_units or "seconds", label_column=ps.label_column,
+            schema=None, units=None, viewers=VALID_VIEWERS[ps.kind],
+        )
+    return info
 
 
 def plan_views(
@@ -77,6 +110,16 @@ def plan_views(
             attachment = _attachment_from_dict(d)
             source = build_source_for(resolved, attachment, raw, schemas)
             name = f"{store_name}:{attachment.viewer_type}"
+            params = {**viewer_defaults.get(attachment.viewer_type, {}), **attachment.params}
+            plans.append(ViewPlan(name, attachment.viewer_type, params, source))
+
+    tank_dir = block_path.parent
+    for ps in session.processed:
+        info = _processed_info(ps, tank_dir, cfg)
+        for d in ps.attachments:
+            attachment = _attachment_from_dict(d)
+            source = build_processed_source(info, attachment, cfg)
+            name = f"{ps.name}:{attachment.viewer_type}"
             params = {**viewer_defaults.get(attachment.viewer_type, {}), **attachment.params}
             plans.append(ViewPlan(name, attachment.viewer_type, params, source))
     return plans

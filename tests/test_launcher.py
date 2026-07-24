@@ -247,3 +247,42 @@ def test_apply_startup_disabled_does_nothing() -> None:
     apply_startup(win, [trace], {"auto_scale": False, "trace_color_scheme": None})
     assert trace.params_controller.applied is None
     assert win.auto_scaled == 0
+
+
+def test_plan_views_includes_processed_sources(tmp_path, monkeypatch) -> None:
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import json
+
+    from tdt_ephyviewer_explorer.processed import CONTRACT_KEY
+    from tdt_ephyviewer_explorer.session import ProcessedSource
+
+    # A tagged timeseries parquet under the tank.
+    block = "blk"
+    pdir = tmp_path / "torpedo" / "preprocessed" / block
+    pdir.mkdir(parents=True)
+    ppath = pdir / "raw_data_mep.parquet"
+    table = pa.Table.from_pandas(pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]}))
+    md = dict(table.schema.metadata or {})
+    md[CONTRACT_KEY] = json.dumps({"contract_version": 1, "kind": "timeseries",
+                                   "sampling_rate": 1000.0, "t_start": 0.0,
+                                   "channel_names": ["a", "b"]}).encode()
+    pq.write_table(table.replace_schema_metadata(md), ppath)
+
+    # No TDT stores referenced; scan_block/read_headers are unused for a processed-only session.
+    monkeypatch.setattr(launcher_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(launcher_mod, "scan_block", lambda p, headers=None: [])
+
+    session = Session(
+        block=block,
+        processed=[ProcessedSource(
+            path="torpedo/preprocessed/blk/raw_data_mep.parquet",
+            kind="timeseries", name="raw_data_mep",
+            attachments=[{"viewer_type": "trace", "delay_ms": 0.0, "probe_path": None, "params": {}}],
+        )],
+    )
+    plans = plan_views(tmp_path / block, session, load_config())
+    assert len(plans) == 1
+    assert plans[0].name == "raw_data_mep:trace"
+    assert plans[0].source.signals.shape == (2, 2)
