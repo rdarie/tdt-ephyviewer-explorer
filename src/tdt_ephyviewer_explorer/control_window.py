@@ -10,7 +10,12 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
 
 from tdt_ephyviewer_explorer.config_schema import load_config
-from tdt_ephyviewer_explorer.processed import ProcessedInfo
+from tdt_ephyviewer_explorer.processed import (
+    ProcessedInfo,
+    classify,
+    scan_preprocessed,
+    to_stored_path,
+)
 from tdt_ephyviewer_explorer.session import ProcessedSource, Session, load_session, save_session
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
 from tdt_ephyviewer_explorer.tank import list_blocks, read_headers, scan_block
@@ -200,6 +205,10 @@ class ControlWindow(QtWidgets.QWidget):
         layout.addWidget(save_btn)
         layout.addWidget(load_btn)
 
+        add_btn = QtWidgets.QPushButton("Add processed…")
+        add_btn.clicked.connect(self._on_add_processed)
+        layout.addWidget(add_btn)
+
     def set_tank(self, tank_dir: Path, block: str | None = None) -> None:
         """Point the window at a tank, populate the block selector, and load a block.
 
@@ -271,6 +280,75 @@ class ControlWindow(QtWidgets.QWidget):
         spec = build_param_tree_spec(resolved, self._viewer_defaults)
         self._root.clearChildren()
         self._root.addChildren(spec)
+        self._append_processed_groups(block_path)
+
+    def _append_processed_groups(self, block_path: Path) -> None:
+        """Auto-scan the preprocessed dir for this block and add processed groups."""
+        if not self._cfg.processed.auto_scan or self._tank_dir is None:
+            return
+        infos = scan_preprocessed(self._tank_dir, block_path.name, self._cfg)
+        if infos:
+            self._root.addChildren(
+                build_processed_param_spec(self._with_stored_paths(infos), self._viewer_defaults)
+            )
+
+    def _with_stored_paths(self, infos: list[ProcessedInfo]) -> list[ProcessedInfo]:
+        """Return copies of ``infos`` whose ``path`` is the stored (rel/abs) form."""
+        from dataclasses import replace
+
+        if self._tank_dir is None:
+            return infos
+        return [replace(i, path=Path(to_stored_path(i.path, self._tank_dir))) for i in infos]
+
+    def _on_add_processed(self) -> None:
+        """Prompt for parquet files and add them as processed groups."""
+        paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
+            self, "Add processed parquet(s)", "", "Parquet (*.parquet)"
+        )
+        if paths:
+            self.add_processed_paths([Path(p) for p in paths])
+
+    def add_processed_paths(self, paths: list[Path]) -> None:
+        """Classify each parquet and append it as a processed group.
+
+        Files that classify (via contract or heuristic) are added directly. A file
+        that cannot be classified as a timeseries for lack of a sample rate prompts
+        for one; unrecognizable files are skipped.
+
+        :param paths: Parquet file paths (any location).
+        """
+        infos = []
+        for path in paths:
+            info = classify(path, self._cfg)
+            if info is None:
+                info = self._prompt_processed_info(path)
+            if info is not None:
+                infos.append(info)
+        if infos:
+            self._root.addChildren(
+                build_processed_param_spec(self._with_stored_paths(infos), self._viewer_defaults)
+            )
+
+    def _prompt_processed_info(self, path: Path) -> ProcessedInfo | None:
+        """Ask for a sampling rate and treat a blob-less file as a timeseries.
+
+        :param path: The parquet path.
+        :returns: A timeseries :class:`ProcessedInfo`, or ``None`` if cancelled.
+        """
+        from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
+
+        rate, ok = QtWidgets.QInputDialog.getDouble(
+            self, "Sampling rate", f"{path.name}: sampling rate (Hz)",
+            float(self._cfg.processed.default_sampling_rate), 0.0, 1e9, 4,
+        )
+        if not ok:
+            return None
+        return ProcessedInfo(
+            path=path, kind="timeseries", role="timeseries", name=path.stem,
+            sampling_rate=rate, t_start=0.0, channel_names=None, time_column=None,
+            time_units="seconds", label_column=None, schema=None, units=None,
+            viewers=VALID_VIEWERS["timeseries"],
+        )
 
     def _on_launch(self) -> None:
         """Read tree state, build a Session, and emit launch_requested signal."""
@@ -320,8 +398,27 @@ class ControlWindow(QtWidgets.QWidget):
 
     def _apply_session(self, session: Session) -> None:
         """Set tree values from a loaded session (enabling the saved viewers)."""
+        # Rebuild processed groups from the session so their viewer state can be applied.
+        existing = {g.name() for g in self._root.children()}
+        new_infos = []
+        for ps in session.processed:
+            if ps.name in existing:
+                continue
+            from tdt_ephyviewer_explorer.processed import ProcessedInfo
+            from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
+            new_infos.append(ProcessedInfo(
+                path=Path(ps.path), kind=ps.kind, role=ps.kind, name=ps.name,
+                sampling_rate=ps.sampling_rate, t_start=ps.t_start or 0.0,
+                channel_names=None, time_column=ps.time_column,
+                time_units=ps.time_units or "seconds", label_column=ps.label_column,
+                schema=None, units=None, viewers=VALID_VIEWERS[ps.kind],
+            ))
+        if new_infos:
+            self._root.addChildren(build_processed_param_spec(new_infos, self._viewer_defaults))
+
+        by_name_processed = {ps.name: ps.attachments for ps in session.processed}
         for store in self._root.children():
-            entries = session.attachments.get(store.name(), [])
+            entries = session.attachments.get(store.name(), []) or by_name_processed.get(store.name(), [])
             by_type = {e["viewer_type"]: e for e in entries}
             for child in store.children():
                 if child.name() == "Viewers":

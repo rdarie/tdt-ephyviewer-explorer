@@ -252,6 +252,35 @@ def test_spec_to_session_emits_processed() -> None:
     assert ps.attachments[0]["viewer_type"] == "trace"
 
 
+def test_set_block_auto_scans_processed(qapp, monkeypatch, tmp_path) -> None:
+    from pathlib import Path
+
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.processed import ProcessedInfo
+    from tdt_ephyviewer_explorer.stores import StoreInfo, VALID_VIEWERS
+
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(cw_mod, "scan_block", lambda p, headers=None:
+                        [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)])
+    fake = ProcessedInfo(
+        path=Path("torpedo/preprocessed/blk/raw_data_mep.parquet"),
+        kind="timeseries", role="timeseries", name="raw_data_mep",
+        sampling_rate=1000.0, t_start=0.0, channel_names=["a"], time_column=None,
+        time_units="seconds", label_column=None, schema=None, units="uV",
+        viewers=VALID_VIEWERS["timeseries"],
+    )
+    monkeypatch.setattr(cw_mod, "scan_preprocessed", lambda tank, block, cfg: [fake])
+
+    cw = ControlWindow(load_config())
+    cw._tank_dir = tmp_path
+    cw.set_block(tmp_path / "blk")
+    group_names = {g.name() for g in cw._root.children()}
+    assert "Wav1" in group_names
+    assert "raw_data_mep" in group_names
+
+
 def test_set_tank_empty_clears_previous_block(qapp, monkeypatch, tmp_path) -> None:
     from tdt_ephyviewer_explorer import control_window as cw_mod
     from tdt_ephyviewer_explorer.control_window import ControlWindow
