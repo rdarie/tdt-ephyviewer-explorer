@@ -317,7 +317,7 @@ class ControlWindow(QtWidgets.QWidget):
 
         :param paths: Parquet file paths (any location).
         """
-        infos = []
+        infos: list[ProcessedInfo] = []
         for path in paths:
             info = classify(path, self._cfg)
             if info is None:
@@ -400,11 +400,10 @@ class ControlWindow(QtWidgets.QWidget):
         """Set tree values from a loaded session (enabling the saved viewers)."""
         # Rebuild processed groups from the session so their viewer state can be applied.
         existing = {g.name() for g in self._root.children()}
-        new_infos = []
+        new_infos: list[ProcessedInfo] = []
         for ps in session.processed:
             if ps.name in existing:
                 continue
-            from tdt_ephyviewer_explorer.processed import ProcessedInfo
             from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
             new_infos.append(ProcessedInfo(
                 path=Path(ps.path), kind=ps.kind, role=ps.kind, name=ps.name,
