@@ -152,7 +152,8 @@ def build_event_source_from_frame(
     :param formatter: Row-to-label fallback formatter, or ``None``.
     :param viewer_type: Event source name (dock key).
     :param delay_ms: Milliseconds added to every timestamp.
-    :raises ValueError: If ``time_units == "samples"`` without a ``sampling_rate``.
+    :raises ValueError: If ``time_units == "samples"`` without a ``sampling_rate``,
+        or if ``label_column`` is given but not present in ``df``.
     """
     ts = df[time_column].to_numpy(dtype=float)
     if time_units == "samples":
@@ -160,7 +161,9 @@ def build_event_source_from_frame(
             raise ValueError("time_units='samples' requires a sampling_rate")
         ts = ts / float(sampling_rate)
     ts = ts + delay_ms / 1000.0
-    if label_column and label_column in df.columns:
+    if label_column:
+        if label_column not in df.columns:
+            raise ValueError(f"label_column {label_column!r} not in frame")
         labels = df[label_column].astype(str).to_numpy()
     elif formatter is not None:
         labels = np.array([formatter.format_row(row) for row in df.to_dict("records")])

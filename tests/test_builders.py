@@ -260,3 +260,14 @@ def test_build_event_source_from_frame_delay_and_formatter_fallback() -> None:
     ev = src.all[0]
     assert ev["time"][0] == 1.02
     assert ev["label"][0] == "ampA: 100"
+
+
+def test_build_event_source_from_frame_missing_label_column_raises() -> None:
+    import pytest
+    df = pd.DataFrame({"timestamp": [1.0], "stim_site": ["E1"]})
+    with pytest.raises(ValueError, match="label_column"):
+        build_event_source_from_frame(
+            df, time_column="timestamp", time_units="seconds", sampling_rate=None,
+            label_column="does_not_exist", formatter=None,
+            viewer_type="eventlist", delay_ms=0.0,
+        )
