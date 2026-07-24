@@ -43,3 +43,58 @@ def test_read_contract_none_when_malformed(tmp_path: Path) -> None:
     md[CONTRACT_KEY] = b"{not valid json"
     pq.write_table(table.replace_schema_metadata(md), p)
     assert read_contract(p) is None
+
+
+from tdt_ephyviewer_explorer.config_schema import load_config
+from tdt_ephyviewer_explorer.processed import ProcessedInfo, classify
+
+
+def test_classify_blob_timeseries(tmp_path: Path) -> None:
+    p = tmp_path / "raw_data_mep.parquet"
+    blob = {"contract_version": 1, "kind": "timeseries", "sampling_rate": 24414.0625,
+            "t_start": 0.0, "channel_names": ["0", "1"], "units": "uV"}
+    _write_parquet(p, pd.DataFrame({"0": [1.0, 2.0], "1": [3.0, 4.0]}), blob=blob)
+    info = classify(p, load_config())
+    assert isinstance(info, ProcessedInfo)
+    assert info.kind == "timeseries" and info.role == "timeseries"
+    assert info.name == "raw_data_mep"
+    assert info.sampling_rate == 24414.0625 and info.t_start == 0.0
+    assert info.channel_names == ["0", "1"] and info.units == "uV"
+    assert "trace" in info.viewers
+
+
+def test_classify_blob_event(tmp_path: Path) -> None:
+    p = tmp_path / "stim_info_per_pulse.parquet"
+    blob = {"contract_version": 1, "kind": "event", "time_column": "timestamp_sample",
+            "time_units": "samples", "sampling_rate": 24414.0625,
+            "label_column": "stim_site", "schema": "iz_param_names"}
+    _write_parquet(p, pd.DataFrame({"timestamp_sample": [100, 200], "stim_site": ["E1", "E2"]}), blob=blob)
+    info = classify(p, load_config())
+    assert info.kind == "event" and info.role == "event"
+    assert info.time_column == "timestamp_sample" and info.time_units == "samples"
+    assert info.label_column == "stim_site" and info.schema == "iz_param_names"
+    assert "eventlist" in info.viewers
+
+
+def test_classify_heuristic_event_by_timestamp_column(tmp_path: Path) -> None:
+    p = tmp_path / "untagged_events.parquet"
+    _write_parquet(p, pd.DataFrame({"timestamp": [0.1, 0.2], "stim_site": ["a", "b"]}))
+    info = classify(p, load_config())
+    assert info.kind == "event" and info.time_column == "timestamp"
+    assert info.time_units == "seconds" and info.label_column == "stim_site"
+
+
+def test_classify_heuristic_timeseries_with_attrs_rate(tmp_path: Path) -> None:
+    p = tmp_path / "mona_data.parquet"
+    _write_parquet(p, pd.DataFrame({"0": [1.0, 2.0], "1": [3.0, 4.0]}),
+                   attrs={"sampling_rate": 12207.03125})
+    info = classify(p, load_config())
+    assert info.kind == "timeseries" and info.sampling_rate == 12207.03125
+
+
+def test_classify_skips_multiindex_feature_table(tmp_path: Path) -> None:
+    p = tmp_path / "mep_full_rms.parquet"
+    df = pd.DataFrame({"v": [1.0, 2.0]},
+                      index=pd.MultiIndex.from_tuples([(1, "a"), (2, "b")], names=["ts", "site"]))
+    _write_parquet(p, df)
+    assert classify(p, load_config()) is None
