@@ -49,6 +49,14 @@ class _Worker(QtCore.QRunnable):
             self.signals.failed.emit(exc)
 
 
+#: Workers that have been started but have not reported yet. ``QThreadPool.start``
+#: does not keep the Python side of a runnable alive, and a collected worker takes
+#: its signal object -- and with it the queued result -- down before delivery,
+#: leaving the row stuck on "loading…" forever. Entries are dropped once the worker
+#: has reported, so this never grows without bound.
+_IN_FLIGHT: "set[_Worker]" = set()
+
+
 def run_in_pool(
     fn: Callable[[], Any],
     on_done: Callable[[Any], None],
@@ -56,13 +64,23 @@ def run_in_pool(
 ) -> None:
     """Run ``fn`` on the global thread pool, delivering the result to the GUI thread.
 
+    The worker is held in :data:`_IN_FLIGHT` until it reports, because the pool does
+    not own the Python object and a garbage collection between ``start`` and the
+    emit would silently discard the result.
+
     :param fn: The work to run.
     :param on_done: Called with the result on success.
     :param on_error: Called with the exception on failure.
     """
     worker = _Worker(fn)
+    # Python, not Qt, owns this runnable's lifetime; see _IN_FLIGHT.
+    worker.setAutoDelete(False)
+    _IN_FLIGHT.add(worker)
     worker.signals.done.connect(on_done)
     worker.signals.failed.connect(on_error)
+    # Connected last, so the caller's handler runs before the worker is released.
+    worker.signals.done.connect(lambda _result: _IN_FLIGHT.discard(worker))
+    worker.signals.failed.connect(lambda _exc: _IN_FLIGHT.discard(worker))
     QtCore.QThreadPool.globalInstance().start(worker)
 
 
@@ -113,6 +131,7 @@ class MetadataWindow(QtWidgets.QWidget):
         self._cache = BlockCache()
         self._tank_dir: Path | None = None
         self._items: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._loading: set[str] = set()
 
         self._picker = TankPicker()
         self._picker.tank_changed.connect(self.set_tank)
@@ -166,6 +185,7 @@ class MetadataWindow(QtWidgets.QWidget):
         self._panel.setVisible(False)
         self._tree.clear()
         self._items = {}
+        self._loading = set()
         for summary in scan_tank(tank_dir):
             cached = self._cache.get(summary.name)
             if cached is None:
@@ -368,11 +388,17 @@ class MetadataWindow(QtWidgets.QWidget):
     def _ensure_details(self, name: str) -> None:
         """Load a block's tier-1 and tier-2 data once, off the GUI thread.
 
+        Expanding a row schedules this twice -- once explicitly and once through
+        ``itemExpanded`` -- and ``details_loaded`` does not go true until the load
+        lands, so an in-flight block is tracked separately. Without it, every
+        expansion reads the whole stim store twice.
+
         :param name: Block name.
         """
         summary = self._require(name)
-        if summary.details_loaded:
+        if summary.details_loaded or name in self._loading:
             return
+        self._loading.add(name)
         self._runner(
             lambda: load_details(summary, self._cfg),
             lambda result: self._on_details(result),
@@ -384,6 +410,9 @@ class MetadataWindow(QtWidgets.QWidget):
 
         :param summary: The summary returned by the worker.
         """
+        self._loading.discard(summary.name)
+        if summary.name not in self._items:
+            return  # the tank was switched while this was loading
         self._cache.put(summary)
         self._add_row(summary)
         self._items[summary.name].setExpanded(True)
@@ -396,6 +425,9 @@ class MetadataWindow(QtWidgets.QWidget):
         """
         from dataclasses import replace
 
+        self._loading.discard(name)
+        if name not in self._items:
+            return  # the tank was switched while this was loading
         summary = self._require(name)
         failed = replace(
             summary,

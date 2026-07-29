@@ -1,4 +1,6 @@
 """Tests for the metadata browser window."""
+import gc
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -8,7 +10,7 @@ ephyviewer = pytest.importorskip("ephyviewer")
 
 from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.metadata.stim import StimSummary
-from tdt_ephyviewer_explorer.metadata.window import MetadataWindow
+from tdt_ephyviewer_explorer.metadata.window import MetadataWindow, run_in_pool
 
 FIXTURES = Path(__file__).parent / "fixtures" / "metadata"
 
@@ -94,6 +96,75 @@ def test_details_are_loaded_once_per_block(qapp, monkeypatch, tmp_path) -> None:
     win.expand_block("Epi_02_Green-260727-154827")
     win.expand_block("Epi_02_Green-260727-154827")
     assert calls == ["Epi_02_Green-260727-154827"]  # cached, not re-read
+
+
+def test_details_are_not_reloaded_while_a_load_is_in_flight(qapp, monkeypatch, tmp_path) -> None:
+    # The synchronous runner above finishes each load before the next check, so it
+    # cannot see this: with the real pool the load is still running, details_loaded
+    # is still False, and a second schedule re-reads the whole eS1p store.
+    from tdt_ephyviewer_explorer.metadata import window as mod
+    from dataclasses import replace
+
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(mod, "load_details", lambda summary, cfg: replace(summary, details_loaded=True))
+    win = MetadataWindow(
+        load_config(), runner=lambda fn, on_done, on_error: scheduled.append((fn, on_done))
+    )
+    win.set_tank(_tank(tmp_path))
+
+    win.expand_block("Epi_02_Green-260727-154827")
+    win.expand_block("Epi_02_Green-260727-154827")
+    assert len(scheduled) == 1
+
+    fn, on_done = scheduled[0]
+    on_done(fn())  # the load lands; a later expand must not re-read either
+    win.expand_block("Epi_02_Green-260727-154827")
+    assert len(scheduled) == 1
+
+
+def test_a_failed_load_does_not_wedge_the_block_forever(qapp, monkeypatch, tmp_path) -> None:
+    # The in-flight guard must release on failure too. It does not retry in place --
+    # a failed load is recorded on the row -- but revisiting the tank re-scans, and a
+    # guard still holding the name would leave the block permanently unloadable.
+    from tdt_ephyviewer_explorer.metadata import window as mod
+
+    name = "Epi_02_Green-260727-154827"
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(mod, "load_details", lambda summary, cfg: None)
+    win = MetadataWindow(
+        load_config(), runner=lambda fn, on_done, on_error: scheduled.append((fn, on_error))
+    )
+    tank = _tank(tmp_path)
+    win.set_tank(tank)
+
+    win.expand_block(name)
+    scheduled[0][1](OSError("corrupt tsq"))
+
+    win.set_tank(_tank(tmp_path / "second", names=("Solo-260101-000000",)))
+    win.set_tank(tank)  # back again: the cache is cold, so this must load afresh
+    win.expand_block(name)
+    assert len(scheduled) == 2
+
+
+def test_a_late_result_for_a_previous_tank_is_dropped(qapp, monkeypatch, tmp_path) -> None:
+    # Switching tanks with a load still running: the result names a block that is no
+    # longer listed, so it must be discarded rather than indexed or cached.
+    from tdt_ephyviewer_explorer.metadata import window as mod
+    from dataclasses import replace
+
+    scheduled: list[tuple] = []
+    monkeypatch.setattr(mod, "load_details", lambda summary, cfg: replace(summary, details_loaded=True))
+    win = MetadataWindow(
+        load_config(), runner=lambda fn, on_done, on_error: scheduled.append((fn, on_done, on_error))
+    )
+    win.set_tank(_tank(tmp_path))
+    win.expand_block("Epi_02_Green-260727-154827")
+    win.set_tank(_tank(tmp_path / "second", names=("Solo-260101-000000",)))
+
+    fn, on_done, on_error = scheduled[0]
+    on_done(fn())
+    on_error(OSError("corrupt tsq"))
+    assert win.block_names() == ["Solo-260101-000000"]
 
 
 def test_a_block_with_no_stim_shows_no_stim_line(qapp, monkeypatch, tmp_path) -> None:
@@ -194,3 +265,35 @@ def test_picker_signal_drives_set_tank(qapp, monkeypatch, tmp_path) -> None:
     tank = _tank(tmp_path)
     win.picker.set_tank(tank)
     assert win.block_names()
+
+
+def _drain(qapp, box: list, seconds: float = 5.0) -> None:
+    """Pump the event loop until ``box`` fills or the deadline passes."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline and not box:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+
+def test_run_in_pool_delivers_the_result_to_the_gui_thread(qapp) -> None:
+    # The window tests all inject a synchronous runner, so this is the only cover
+    # for the real one. A worker collected before it emits delivers nothing at all,
+    # which in the app looks like a block stuck on "loading…" forever.
+    got: list[object] = []
+    run_in_pool(lambda: 42, got.append, got.append)
+    gc.collect()  # the runner must not depend on the worker surviving by luck
+    _drain(qapp, got)
+    assert got == [42]
+
+
+def test_run_in_pool_delivers_a_failure(qapp) -> None:
+    failures: list[BaseException] = []
+    run_in_pool(_boom, lambda result: failures.append(AssertionError("unexpected")), failures.append)
+    gc.collect()
+    _drain(qapp, failures)
+    assert isinstance(failures[0], OSError)
+
+
+def _boom() -> None:
+    """Work that always fails, for the failure path."""
+    raise OSError("corrupt tsq")
