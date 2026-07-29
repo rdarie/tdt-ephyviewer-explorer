@@ -186,18 +186,35 @@ def test_scan_tank_marks_a_block_it_cannot_read(tmp_path: Path, monkeypatch) -> 
 
 
 def test_scan_tank_never_touches_tier_1_or_2(tmp_path: Path, monkeypatch) -> None:
-    """Pins the tiering: scan_tank must not reach for the expensive reads."""
+    """Pins the tiering: scan_tank must not reach for the expensive reads.
+
+    Uses call-counting spies rather than raising canaries: scan_tank wraps
+    read_text_metadata in a broad except Exception, so a canary that raises
+    would be silently absorbed and turned into a (correctly named) fallback
+    summary, defeating the probe. A recorded call is unambiguous evidence of
+    a tier violation no exception handling can mask.
+    """
     from tdt_ephyviewer_explorer.metadata import summary as mod
 
     _block(tmp_path, "blockA-1")
 
-    def boom(*args, **kwargs):
-        raise AssertionError("scan_tank must not call tier-1/2 reads")
+    header_calls: list[Path] = []
+    stim_calls: list[Path] = []
 
-    monkeypatch.setattr(mod, "read_headers", boom)
-    monkeypatch.setattr(mod, "read_stim_summaries", boom)
+    def spy_headers(path: Path) -> _Headers:
+        header_calls.append(path)
+        return _headers(["Wav1"])
+
+    def spy_stim(block_path: Path, cfg, headers=None):
+        stim_calls.append(block_path)
+        return [], []
+
+    monkeypatch.setattr(mod, "read_headers", spy_headers)
+    monkeypatch.setattr(mod, "read_stim_summaries", spy_stim)
     out = scan_tank(tmp_path)
     assert [s.name for s in out] == ["blockA-1"]
+    assert header_calls == []
+    assert stim_calls == []
 
 
 def test_cache_returns_what_was_put(tmp_path: Path) -> None:
