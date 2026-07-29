@@ -63,12 +63,38 @@ source .venv/bin/activate
 tdt-explore --tank "/path/to/tank" --block "<block-name>"
 ```
 
-- `--tank` (required): a Synapse tank directory (contains block subfolders).
+- `--tank` (optional): a Synapse tank directory (contains block subfolders).
 - `--block` (optional): preselect a block; otherwise the first block is auto-selected.
   You can switch blocks from the Control Window's block selector.
 
+`--tank` is optional for both apps; without it the window opens empty and you pick a
+tank with the in-window Browse button.
+
 Per-tank sessions (your composed viewer layouts) are saved under
 `<tank>/tdt_explore/sessions/` — raw block directories are never modified.
+
+## Session metadata browser
+
+```bash
+uv run tdt-metadata [--tank "C:/TDT/Synapse/Tanks/<tank>"]
+```
+
+Lists every block in the tank with its start time and duration. Expanding a block shows
+its experiment/subject/user, the gizmos that were active and the stores they wrote, and —
+for eStim gizmos — how many pulses were delivered under how many distinct parameter
+combinations. The **Expand** buttons open two tables in a side panel:
+
+- **Notes** — the recording's `Notes.txt`, read-only.
+- **Analysis notes** — post-hoc annotations you can add, edit, and delete. Each is stamped
+  with the wall clock at the time you type it and saved to `<block>/analysis_notes.txt`, in
+  the same format Synapse uses for `Notes.txt`. This is the only file either app writes into
+  a raw block directory.
+
+Right-click (or double-click) a block to open it in `tdt-explore`.
+
+Reads are tiered so a large tank stays responsive: the block list comes from the text
+sidecars alone, while the `.tsq` index and the stim parameter store are read only when you
+expand a block, then cached.
 
 ## Processed parquet ingestion
 

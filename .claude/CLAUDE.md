@@ -37,6 +37,7 @@ In all interactions and commit messages, be extremely concise.
 ### Commands
 * Install (dev, editable ephyviewer from `../ephyviewer`): `uv sync`. Standard (ephyviewer from git fork): `uv sync --no-sources`.
 * Run app: `uv run tdt-explore --tank "<tank dir>" [--block <name>]`.
+* Run metadata browser: `uv run tdt-metadata [--tank "<tank dir>"]`.
 * All tests: `uv run pytest`. Single file/test: `uv run pytest tests/test_builders.py::test_name`.
 * Suite is Qt-free & headless. The one real-`tdt` test is skipped unless `TDT_EXPLORE_TEST_BLOCK=<tank>/<block>` is set (see README).
 * Each `src/` module has a mirror `tests/test_<module>.py`; add tests there.
@@ -54,9 +55,20 @@ The app is deliberately split so all data logic is unit-testable without Qt:
 4. **Build sources** (`builders.py`): `build_source_for` dispatches by viewer type → `build_analog_source` / `build_event_source` / `build_epoch_source` / `build_spike_source` → in-memory ephyviewer sources. `build_viewer` wraps a source in a viewer class (`_VIEWER_CLASSES`).
 5. **Plan & launch** (`launcher.py`): `plan_views` (Qt-free) resolves a `Session` → ordered `ViewPlan`s, loading each store **once** even with multiple viewers; `launch_block` docks the first viewer and tabifies the rest.
 
+### The metadata browser (`metadata/`)
+A second app (`tdt-metadata`) that browses session metadata without opening viewers, built
+on the same Qt-free-core rule: `listing.py` (StoresListing → gizmos), `notes.py` (Notes.txt
+parse/render plus the editable `AnalysisNotes` model), `stim.py` (eS1p → pulses and unique
+parameter combinations), `summary.py` (`BlockSummary` and the three read tiers), with
+`window.py`/`notes_panel.py` as the Qt shell. `tank_picker.py` is shared with the Control
+Window. Reads are tiered — text sidecars for all blocks, `.tsq` headers and `eS1p` only on
+expand — so don't move the expensive reads into the eager path.
+
 ### Key concepts
 * **`.tsq` index reuse (perf):** parse once via `read_headers`, then thread the `headers` object through `scan_block` / `load_store` / `plan_views`. The Control Window caches it on `ControlWindow.headers` and `app.py` passes it into `launch_block`. Don't reintroduce per-read re-parsing.
 * **Session** (`session.py`): a pure composition record (`block` + `{store: [attachment dicts]}`), NOT viewer state. Persisted as YAML under `<tank>/tdt_explore/sessions/`. **Raw block dirs are never written to.** Conversion: `spec_to_session` (tree state → Session), `_apply_session` (Session → tree).
+  **Exception:** `tdt-metadata` writes `<block>/analysis_notes.txt` — the one sanctioned
+  write into a raw block dir, for post-hoc annotations. Nothing else may write there.
 * **Config** (Hydra, `config/`): `config.yaml` composes `viewer/`, `roles/`, `schema/`, `startup/` groups (all `# @package _global_`). `startup` drives one-time launch behavior (`auto_scale`, `trace_color_scheme`) applied by `launcher.apply_startup`. Loaded read-only via `config_schema.load_config`; GUI seeds its tree from it and saves tweaks to sessions. Add hyperparameters/patterns here, never in code.
 * **Roles/schemas/formatters:** a `RoleRule` may pin a column `schema` (named list in `schema/default.yaml`) and a `formatter` (Hydra `_target_`, instantiated for event labels). Formatters implement `StimFormatter.format_row` (`formatters/base.py`); `GenericFormatter` is the fallback, `IZVoiceFormatter` the example.
 * **Probes** (`probe.py`): optional probeinterface JSON reorders analog channels into contact order (timeseries only); no probe = acquisition order.
