@@ -332,3 +332,89 @@ def test_set_tank_empty_clears_previous_block(qapp, monkeypatch, tmp_path) -> No
     cw.set_tank(empty)  # no blocks -> clear stale state
     assert cw._block_path is None
     assert list(cw._root.children()) == []
+
+
+def test_control_window_exposes_tank_dir(qapp, monkeypatch, tmp_path) -> None:
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    assert cw.tank_dir is None  # nothing picked yet
+
+    tank = _make_tank(tmp_path)
+    cw.set_tank(tank)
+    assert cw.tank_dir == tank
+
+
+def test_picker_signal_loads_the_tank(qapp, monkeypatch, tmp_path) -> None:
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    tank = _make_tank(tmp_path)
+
+    cw.picker.set_tank(tank)  # as if the user browsed to it
+    assert cw.tank_dir == tank
+    assert [c.name() for c in cw._root.children()] == ["Wav1"]
+
+
+def test_launch_button_disabled_until_a_block_loads(qapp, monkeypatch, tmp_path) -> None:
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    assert cw.launch_button.isEnabled() is False  # no tank yet
+
+    cw.set_tank(_make_tank(tmp_path))
+    assert cw.launch_button.isEnabled() is True
+
+    empty = tmp_path / "empty_tank"
+    empty.mkdir()
+    cw.set_tank(empty)
+    assert cw.launch_button.isEnabled() is False  # cleared again
+
+
+def test_set_tank_updates_the_picker_without_reentering(qapp, monkeypatch, tmp_path) -> None:
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p, headers=None: [StoreInfo("Wav1", "streams", 1000.0, 4, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    calls: list[object] = []
+    cw.picker.tank_changed.connect(calls.append)
+
+    tank = _make_tank(tmp_path)
+    cw.set_tank(tank)  # programmatic: picker must display it, not re-emit
+    assert cw.picker.tank_dir == tank
+    assert calls == []

@@ -36,8 +36,29 @@ def test_on_launch_threads_control_window_headers(qapp, monkeypatch) -> None:
 
     monkeypatch.setattr(app_mod, "launch_block", fake_launch_block)
     app = App()
-    app._tank_dir = Path("tank")
+    app.control_window._tank_dir = Path("tank")
     heads = object()
     app.control_window._headers = heads  # as if a block was scanned
     app._on_launch(Session(block="blk", attachments={}))
     assert captured["headers"] is heads  # reuse the already-parsed index at launch
+
+
+def test_main_without_tank_opens_an_empty_window(qapp, monkeypatch) -> None:
+    from tdt_ephyviewer_explorer import app as app_mod
+
+    shown: list[object] = []
+    monkeypatch.setattr(app_mod, "mkQApp", lambda: _FakeQApp(shown))
+
+    assert app_mod.main([]) == 0  # --tank is optional now
+    assert shown == ["exec"]
+
+
+class _FakeQApp:
+    """Stands in for the Qt application so main() returns without an event loop."""
+
+    def __init__(self, shown: list) -> None:
+        self._shown = shown
+
+    def exec(self) -> int:
+        self._shown.append("exec")
+        return 0

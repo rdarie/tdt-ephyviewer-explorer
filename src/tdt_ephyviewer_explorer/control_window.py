@@ -19,6 +19,7 @@ from tdt_ephyviewer_explorer.processed import (
 from tdt_ephyviewer_explorer.session import ProcessedSource, Session, load_session, save_session
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
 from tdt_ephyviewer_explorer.tank import list_blocks, read_headers, scan_block
+from tdt_ephyviewer_explorer.tank_picker import TankPicker
 
 
 def build_param_tree_spec(
@@ -175,14 +176,15 @@ class ControlWindow(QtWidgets.QWidget):
         self._block_path: Path | None = None
         self._headers: Any | None = None
 
-        # Global group: tank directory (readonly) + a block selector populated from
-        # list_blocks(). Selecting a block rebuilds the per-store tree below.
+        # Global group: a block selector populated from list_blocks(). The tank path
+        # itself is shown by the picker above, not duplicated here.
+        self._picker = TankPicker()
+        self._picker.tank_changed.connect(self.set_tank)
         self._global_tree = ParameterTree(showHeader=False)
         self._global_root = Parameter.create(
             name="global",
             type="group",
             children=[
-                {"name": "tank", "type": "str", "value": "", "readonly": True},
                 {"name": "block", "type": "list", "limits": [], "value": None},
             ],
         )
@@ -193,12 +195,14 @@ class ControlWindow(QtWidgets.QWidget):
         self._root = Parameter.create(name="stores", type="group", children=[])
         self._tree.setParameters(self._root, showTop=False)
 
-        launch_btn = QtWidgets.QPushButton("Launch window")
-        launch_btn.clicked.connect(self._on_launch)
+        self._launch_btn = QtWidgets.QPushButton("Launch window")
+        self._launch_btn.clicked.connect(self._on_launch)
+        self._launch_btn.setEnabled(False)
         layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self._picker)
         layout.addWidget(self._global_tree)
         layout.addWidget(self._tree)
-        layout.addWidget(launch_btn)
+        layout.addWidget(self._launch_btn)
 
         save_btn = QtWidgets.QPushButton("Save session")
         save_btn.clicked.connect(self._on_save)
@@ -224,7 +228,7 @@ class ControlWindow(QtWidgets.QWidget):
         :param block: Block name to load; defaults to the first listed block.
         """
         self._tank_dir = tank_dir
-        self._global_root.child("tank").setValue(str(tank_dir))
+        self._picker.show_tank(tank_dir)
         names = [p.name for p in list_blocks(tank_dir)]
         chosen = block if block in names else (names[0] if names else None)
 
@@ -244,6 +248,7 @@ class ControlWindow(QtWidgets.QWidget):
             self._block_path = None
             self._headers = None
             self._root.clearChildren()
+        self._launch_btn.setEnabled(self._block_path is not None)
 
     def select_block(self, block: str) -> None:
         """Select a different block by name, loading its stores.
@@ -259,6 +264,26 @@ class ControlWindow(QtWidgets.QWidget):
         """Load the newly (user-)selected block's stores."""
         if self._tank_dir is not None and value:
             self.set_block(self._tank_dir / str(value))
+
+    @property
+    def picker(self) -> TankPicker:
+        """The tank picker hosted at the top of the window."""
+        return self._picker
+
+    @property
+    def launch_button(self) -> QtWidgets.QPushButton:
+        """The launch button, disabled while no block is loaded."""
+        return self._launch_btn
+
+    @property
+    def tank_dir(self) -> Path | None:
+        """The current tank directory, or ``None`` before one is picked.
+
+        This window is the single owner of the current tank; :class:`~app.App` reads
+        it from here so that picking a new tank in the GUI cannot leave the launcher
+        pointed at the previous one.
+        """
+        return self._tank_dir
 
     @property
     def headers(self) -> Any | None:
@@ -283,6 +308,7 @@ class ControlWindow(QtWidgets.QWidget):
         self._root.clearChildren()
         self._root.addChildren(spec)
         self._append_processed_groups(block_path)
+        self._launch_btn.setEnabled(True)
 
     def _append_processed_groups(self, block_path: Path) -> None:
         """Auto-scan the preprocessed dir for this block and add processed groups."""
