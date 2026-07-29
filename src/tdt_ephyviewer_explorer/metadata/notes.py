@@ -1,12 +1,13 @@
 """Parsing and rendering of Synapse ``Notes.txt`` and the ``analysis_notes.txt`` sidecar."""
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
-from tdt_ephyviewer_explorer.metadata.textio import read_text
+from tdt_ephyviewer_explorer.metadata.textio import read_text, write_text_atomic
 
 NOTES_FILENAME = "Notes.txt"
 
@@ -247,3 +248,159 @@ def read_notes(path: Path) -> NotesFile:
     if not path.is_file():
         return EMPTY_NOTES
     return parse_notes(read_text(path))
+
+
+class NotesConflict(RuntimeError):
+    """Raised when the notes file changed on disk since it was loaded."""
+
+
+@dataclass(frozen=True)
+class _Snapshot:
+    """A fingerprint of the sidecar file at the moment it was last read.
+
+    ``mtime`` alone is not a reliable staleness signal: two writes in quick
+    succession can land within the same filesystem timestamp tick (observed on
+    Windows), so ``size`` and a content ``digest`` are also captured and compared.
+
+    :param mtime: The file's mtime.
+    :param size: The file's size in bytes.
+    :param digest: A SHA-256 hex digest of the file's bytes.
+    """
+
+    mtime: float
+    size: int
+    digest: str
+
+
+def _snapshot(path: Path) -> _Snapshot:
+    """Fingerprint an existing file's mtime, size, and content.
+
+    :param path: The file to fingerprint; must exist.
+    :returns: The fingerprint.
+    :raises OSError: If the file cannot be read.
+    """
+    stat = path.stat()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return _Snapshot(mtime=stat.st_mtime, size=stat.st_size, digest=digest)
+
+
+class AnalysisNotes:
+    """Mutable, savable view of a block's ``analysis_notes.txt``.
+
+    Notes are stamped with the wall clock at the moment they are typed. The file is
+    written whole and atomically, and a write is refused if the file changed on disk
+    since it was loaded, so two open windows cannot silently clobber each other.
+    """
+
+    def __init__(self, path: Path, header: NotesFile, notes: tuple[Note, ...],
+                 snapshot: _Snapshot | None) -> None:
+        """:param path: The sidecar file path (may not exist yet).
+        :param header: Header block to write with the notes.
+        :param notes: Notes loaded from disk, if any.
+        :param snapshot: Fingerprint of the file when loaded; ``None`` if it did
+            not exist."""
+        self._path = path
+        self._header = header
+        self._notes = notes
+        self._snapshot = snapshot
+
+    @classmethod
+    def load(cls, block_path: Path, filename: str, header: NotesFile) -> AnalysisNotes:
+        """Load a block's analysis notes, or start an empty set.
+
+        An existing file's own header wins over ``header``: the file records the
+        recording it belongs to, and a caller's fallback must not overwrite it.
+
+        :param block_path: The block directory.
+        :param filename: Sidecar filename, from config.
+        :param header: Header to use when the file does not exist yet, normally
+            taken from the block's ``Notes.txt``.
+        :returns: The loaded editing model. No file is created.
+        """
+        path = block_path / filename
+        if not path.is_file():
+            return cls(path, header, (), None)
+        existing = read_notes(path)
+        return cls(path, existing, existing.notes, _snapshot(path))
+
+    @property
+    def path(self) -> Path:
+        """The sidecar file path; may not exist until the first :meth:`save`."""
+        return self._path
+
+    @property
+    def notes(self) -> tuple[Note, ...]:
+        """The current notes, indexed ``1..N``."""
+        return self._notes
+
+    def append(self, text: str, now: datetime) -> None:
+        """Add a note stamped with the current wall clock.
+
+        :param text: The note body.
+        :param now: The authoring timestamp (injected so tests are deterministic).
+        """
+        self._notes = self._notes + (Note(len(self._notes) + 1, now, text),)
+
+    def edit(self, index: int, text: str) -> None:
+        """Replace a note's text, keeping its timestamp.
+
+        :param index: 1-based note index.
+        :param text: The replacement body.
+        :raises IndexError: If ``index`` is out of range.
+        """
+        self._require(index)
+        self._notes = tuple(
+            replace(n, text=text) if n.index == index else n for n in self._notes
+        )
+
+    def delete(self, index: int) -> None:
+        """Delete a note and renumber the rest.
+
+        :param index: 1-based note index.
+        :raises IndexError: If ``index`` is out of range.
+        """
+        self._require(index)
+        self._notes = renumber(tuple(n for n in self._notes if n.index != index))
+
+    def save(self) -> None:
+        """Write the notes atomically, refusing to clobber a newer file.
+
+        :raises NotesConflict: If the file changed on disk since it was loaded.
+        :raises OSError: If the directory is not writable.
+        """
+        if self._stale():
+            raise NotesConflict(
+                f"{self._path} changed on disk since it was loaded; reload before saving"
+            )
+        text = render_notes(
+            NotesFile(
+                experiment=self._header.experiment,
+                subject=self._header.subject,
+                user=self._header.user,
+                start=self._header.start,
+                stop=self._header.stop,
+                notes=self._notes,
+                warnings=(),
+            )
+        )
+        write_text_atomic(self._path, text)
+        self._snapshot = _snapshot(self._path)
+
+    def _stale(self) -> bool:
+        """Whether the on-disk file has moved on from the loaded snapshot.
+
+        Compares mtime, size, and content digest rather than mtime alone: two
+        writes in quick succession can share a filesystem timestamp tick, and
+        relying on mtime only would let a same-tick clobber through undetected.
+        """
+        exists = self._path.is_file()
+        if not exists:
+            return False  # nothing to clobber
+        if self._snapshot is None:
+            return True  # appeared after we started with no file
+        return _snapshot(self._path) != self._snapshot
+
+    def _require(self, index: int) -> None:
+        """Raise if ``index`` is not a current note index."""
+        if not any(n.index == index for n in self._notes):
+            raise IndexError(f"no note with index {index}")
