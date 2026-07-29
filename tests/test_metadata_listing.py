@@ -61,3 +61,21 @@ def test_read_stores_listing_reads_the_block_file(tmp_path: Path) -> None:
         "eStim1",
         "Wave1",
     ]
+
+
+def test_break_at_flat_listing_prevents_parsing_beyond_it() -> None:
+    # Ensure the break statement is not dead code: a line matching Object ID :
+    # after Flat Listing: should be ignored if the break is present.
+    text = (
+        "Object ID : RZ2(1) - RZn Processor\n"
+        " Store ID : Tick\n"
+        "\n"
+        "Flat Listing:\n"
+        "StoreID  Gizmo/Hal      Description\n"
+        "Tick     RZn(1)         Marking one second intervals.\n"
+        "Object ID : BadGizmo - Should Not Parse\n"
+        " Store ID : BadStore\n"
+    )
+    gizmos = parse_stores_listing(text)
+    assert gizmos == [Gizmo("RZ2(1)", "RZn Processor", ("Tick",))]
+    # If break were removed, BadGizmo would be parsed, failing this assertion.

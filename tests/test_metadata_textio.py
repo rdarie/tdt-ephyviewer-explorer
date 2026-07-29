@@ -1,5 +1,6 @@
 """Tests for encoding-tolerant reads and atomic writes."""
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -36,3 +37,19 @@ def test_write_text_atomic_overwrites(tmp_path: Path) -> None:
     write_text_atomic(p, "first\r\n")
     write_text_atomic(p, "second\r\n")
     assert p.read_bytes() == b"second\r\n"
+
+
+def test_write_text_atomic_cleanup_on_replace_failure(tmp_path: Path) -> None:
+    """Verify crash-safety: OSError on rename leaves original intact and no temp file."""
+    p = tmp_path / "a.txt"
+    original = "original\r\n"
+    write_text_atomic(p, original)
+
+    # Monkeypatch os.replace to raise OSError during the rename phase
+    with patch("tdt_ephyviewer_explorer.metadata.textio.os.replace", side_effect=OSError("Rename failed")):
+        with pytest.raises(OSError, match="Rename failed"):
+            write_text_atomic(p, "new content\r\n")
+
+    # Verify: original file unchanged, no .tmp file left
+    assert p.read_bytes() == original.encode("utf-8")
+    assert [f.name for f in tmp_path.iterdir()] == ["a.txt"]
