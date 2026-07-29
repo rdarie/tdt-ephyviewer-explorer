@@ -136,6 +136,35 @@ def test_load_details_survives_a_header_parse_failure(tmp_path: Path, monkeypatc
     assert out.subject == "Epi_02_Green"  # tier-0 data survives
 
 
+def test_load_details_survives_a_malformed_headers_object(tmp_path: Path, monkeypatch) -> None:
+    """augment_with_headers can itself raise (e.g. no "stores" key); must degrade, not crash."""
+    from tdt_ephyviewer_explorer.metadata import summary as mod
+
+    monkeypatch.setattr(
+        mod, "read_headers", lambda p: {"start_time": [0.0], "stop_time": [1.0]}
+    )
+    out = load_details(read_text_metadata(_block(tmp_path)), cfg=None)
+    assert out.details_loaded is True  # done trying; not stuck on "loading…"
+    assert any("stores" in w for w in out.warnings)
+    assert out.subject == "Epi_02_Green"  # tier-0 data survives
+
+
+def test_load_details_survives_a_stim_summary_exception(tmp_path: Path, monkeypatch) -> None:
+    """read_stim_summaries can raise (e.g. KeyError from a misconfigured schema)."""
+    from tdt_ephyviewer_explorer.metadata import summary as mod
+
+    monkeypatch.setattr(mod, "read_headers", lambda p: _headers(["eS1p"]))
+
+    def boom(block_path, cfg, headers=None):
+        raise KeyError("no such schema")
+
+    monkeypatch.setattr(mod, "read_stim_summaries", boom)
+    out = load_details(read_text_metadata(_block(tmp_path)), cfg=None)
+    assert out.details_loaded is True
+    assert out.stim == ()
+    assert any("no such schema" in w for w in out.warnings)
+
+
 def test_scan_tank_returns_one_summary_per_block(tmp_path: Path) -> None:
     _block(tmp_path, "blockB-2")
     _block(tmp_path, "blockA-1")
@@ -154,6 +183,21 @@ def test_scan_tank_marks_a_block_it_cannot_read(tmp_path: Path, monkeypatch) -> 
     out = scan_tank(tmp_path)
     assert len(out) == 1  # never silently dropped
     assert any("permission denied" in w for w in out[0].warnings)
+
+
+def test_scan_tank_never_touches_tier_1_or_2(tmp_path: Path, monkeypatch) -> None:
+    """Pins the tiering: scan_tank must not reach for the expensive reads."""
+    from tdt_ephyviewer_explorer.metadata import summary as mod
+
+    _block(tmp_path, "blockA-1")
+
+    def boom(*args, **kwargs):
+        raise AssertionError("scan_tank must not call tier-1/2 reads")
+
+    monkeypatch.setattr(mod, "read_headers", boom)
+    monkeypatch.setattr(mod, "read_stim_summaries", boom)
+    out = scan_tank(tmp_path)
+    assert [s.name for s in out] == ["blockA-1"]
 
 
 def test_cache_returns_what_was_put(tmp_path: Path) -> None:

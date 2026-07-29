@@ -125,7 +125,12 @@ def load_details(summary: BlockSummary, cfg: Any) -> BlockSummary:
         warnings.append(f"could not read block index: {exc}")
         return replace(summary, warnings=tuple(warnings), details_loaded=True)
 
-    out = augment_with_headers(summary, headers)
+    try:
+        out = augment_with_headers(summary, headers)
+    except Exception as exc:  # noqa: BLE001 - a bad block must not kill the window
+        warnings.append(f"could not augment metadata from block index: {exc}")
+        return replace(summary, warnings=tuple(warnings), details_loaded=True)
+
     try:
         stim, stim_warnings = read_stim_summaries(out.path, cfg, headers=headers)
     except Exception as exc:  # noqa: BLE001
