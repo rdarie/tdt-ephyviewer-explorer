@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 
 from tdt_ephyviewer_explorer.metadata.notes import (
     AnalysisNotes,
@@ -144,7 +144,7 @@ class NotesPanel(QtWidgets.QWidget):
         if self._model is None or row >= len(self._model.notes):
             return
         self._model.delete(self._model.notes[row].index)
-        if self._save():
+        if self._save(pending_append_text=None):
             self._fill(self._model.notes, editable=True, blank_row=True)
 
     def _set_header(self, block_name: str, title: str) -> None:
@@ -163,7 +163,10 @@ class NotesPanel(QtWidgets.QWidget):
         :param editable: Whether the note column accepts edits.
         :param blank_row: Whether to append an empty entry row.
         """
-        self._applying = True  # suppress itemChanged while populating
+        # Setting an item's text always re-emits itemChanged, including when done
+        # programmatically here; this guard is what stops that from being mistaken
+        # for a user edit and re-entering _on_item_changed while we repopulate.
+        self._applying = True
         try:
             self._table.setRowCount(len(notes) + (1 if blank_row else 0))
             for row, note in enumerate(notes):
@@ -206,17 +209,32 @@ class NotesPanel(QtWidgets.QWidget):
             if text == existing[row].text:
                 return
             self._model.edit(existing[row].index, text)
+            pending_append_text = None
         else:
             if not text:
                 return  # an empty entry row is not a note
             self._model.append(text, self._clock())
+            pending_append_text = text  # restored into the blank row on conflict
 
-        if self._save():
+        if self._save(pending_append_text):
             self._fill(self._model.notes, editable=True, blank_row=True)
 
-    def _save(self) -> bool:
-        """Save the model, reporting any failure inline.
+    def _save(self, pending_append_text: str | None) -> bool:
+        """Save the model, recovering from a stale-file conflict and reporting failures inline.
 
+        A :exc:`NotesConflict` must never wedge the panel: without recovery, the
+        model's staleness snapshot would never advance and every later save would
+        raise the same conflict forever. So on conflict this reloads the model from
+        disk (picking up the current snapshot), refills the table from the reloaded
+        notes, and -- if the change that triggered the save was a brand-new note
+        typed into the trailing blank row -- puts that text back into a fresh blank
+        row so the user loses nothing and can retry by pressing Enter again.
+
+        :param pending_append_text: The raw text of a just-appended new note, or
+            ``None`` when the save followed an edit or a delete. Only a pending
+            *new* note is restored after a conflict; an in-progress edit of an
+            existing row is discarded by :meth:`AnalysisNotes.reload` along with
+            everything else not yet on disk.
         :returns: ``True`` when the save succeeded.
         """
         if self._model is None:
@@ -224,7 +242,14 @@ class NotesPanel(QtWidgets.QWidget):
         try:
             self._model.save()
         except NotesConflict as exc:
-            self._set_message(str(exc))
+            self._model.reload()
+            self._fill(self._model.notes, editable=True, blank_row=True)
+            if pending_append_text is not None:
+                self._restore_pending_text(pending_append_text)
+            self._set_message(
+                f"{exc} Reloaded the latest version from disk; your note was not "
+                "saved. Retype it to save again."
+            )
             return False
         except OSError as exc:
             self._set_message(f"Could not save notes: {exc}")
@@ -233,8 +258,30 @@ class NotesPanel(QtWidgets.QWidget):
         self.notes_changed.emit()
         return True
 
-    def _on_context_menu(self, point) -> None:
-        """Offer a delete action on the clicked row."""
+    def _restore_pending_text(self, text: str) -> None:
+        """Put ``text`` back into the trailing blank row without triggering a save.
+
+        Used after a conflict reload discards an in-memory, not-yet-saved new note,
+        so the user does not have to retype it from scratch.
+
+        :param text: The note text to restore.
+        """
+        row = self._table.rowCount() - 1
+        self._applying = True  # this write must not be mistaken for a new edit
+        try:
+            item = self._table.item(row, 2)
+            if item is None:
+                item = QtWidgets.QTableWidgetItem()
+                self._table.setItem(row, 2, item)
+            item.setText(text)
+        finally:
+            self._applying = False
+
+    def _on_context_menu(self, point: QPoint) -> None:
+        """Offer a delete action on the clicked row.
+
+        :param point: Click position, in the table's viewport coordinates.
+        """
         if not self._editable or self._model is None:
             return
         row = self._table.rowAt(point.y())

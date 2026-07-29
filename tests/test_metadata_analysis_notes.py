@@ -105,6 +105,44 @@ def test_save_refuses_when_the_file_changed_underneath(tmp_path: Path) -> None:
     assert "theirs" in an.path.read_bytes().decode("utf-8")
 
 
+def test_reload_after_a_conflict_picks_up_the_other_writers_notes(tmp_path: Path) -> None:
+    an = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
+    an.append("mine", T1)
+    an.save()
+
+    other = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
+    other.append("theirs", T2)
+    other.save()
+
+    an.append("mine again", T2)
+    with pytest.raises(NotesConflict):
+        an.save()
+
+    an.reload()
+    assert [n.text for n in an.notes] == ["mine", "theirs"]  # pending edit is gone
+
+
+def test_reload_lets_a_subsequent_save_succeed(tmp_path: Path) -> None:
+    an = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
+    an.append("mine", T1)
+    an.save()
+
+    other = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
+    other.append("theirs", T2)
+    other.save()
+
+    an.append("mine again", T2)
+    with pytest.raises(NotesConflict):
+        an.save()
+
+    an.reload()
+    an.append("mine again", T2)
+    an.save()  # would still raise NotesConflict without reload()
+
+    text = an.path.read_bytes().decode("utf-8")
+    assert "mine again" in text
+
+
 def test_reload_clears_the_conflict(tmp_path: Path) -> None:
     an = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
     an.append("mine", T1)

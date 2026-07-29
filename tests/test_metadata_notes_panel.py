@@ -130,7 +130,18 @@ def test_a_conflicting_save_is_reported_and_not_silent(qapp, tmp_path) -> None:
     panel = NotesPanel()
     panel.show_editable("blk", "Analysis notes", model, lambda: NOW)
     panel.set_cell_text(panel.row_count - 1, 2, "mine again")
-    assert "changed on disk" in panel.message_text
+
+    assert "changed on disk" in panel.message_text  # (i) explained, not swallowed
+    assert [n.text for n in model.notes] == ["mine", "theirs"]  # (ii) reloaded from disk
+    assert model.path.read_bytes().decode("utf-8").count("theirs") == 1
+    assert panel.cell_text(panel.row_count - 1, 2) == "mine again"  # (iii) pending text kept
+
+    # (iv) the reload advanced the model's snapshot, so a retry now saves cleanly --
+    # this would keep failing forever without AnalysisNotes.reload().
+    panel.set_cell_text(panel.row_count - 1, 2, "mine again, resaved")
+    assert panel.message_text == ""
+    assert [n.text for n in model.notes] == ["mine", "theirs", "mine again, resaved"]
+    assert "mine again, resaved" in model.path.read_bytes().decode("utf-8")
 
 
 def test_a_write_failure_is_reported(qapp, tmp_path, monkeypatch) -> None:
@@ -144,6 +155,29 @@ def test_a_write_failure_is_reported(qapp, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(Path, "write_bytes", boom)
     panel.set_cell_text(0, 2, "nope")
     assert "read-only" in panel.message_text
+
+
+def test_filling_the_table_never_mutates_the_model(qapp, tmp_path) -> None:
+    """The ``_applying`` guard must stop programmatic table writes from being
+    mistaken for user edits, independent of the ``text == existing text``
+    shortcuts in ``_on_item_changed`` -- so this spies on the model's own
+    ``append``/``edit`` rather than relying on those shortcuts to save it."""
+    model = _model(tmp_path)
+    model.append("one", NOW)
+    model.save()
+
+    calls: list[str] = []
+    real_append = model.append
+    real_edit = model.edit
+    model.append = lambda text, now: (calls.append("append"), real_append(text, now))[1]  # type: ignore[method-assign]
+    model.edit = lambda index, text: (calls.append("edit"), real_edit(index, text))[1]  # type: ignore[method-assign]
+
+    panel = NotesPanel()
+    panel.show_editable("blk", "Analysis notes", model, lambda: NOW)  # populates via _fill
+    panel.delete_row(0)
+    panel.show_editable("blk", "Analysis notes", model, lambda: NOW)  # refill again
+
+    assert calls == []
 
 
 def test_switching_views_replaces_the_content(qapp, tmp_path) -> None:

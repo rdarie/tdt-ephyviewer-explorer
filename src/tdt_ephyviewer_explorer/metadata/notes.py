@@ -323,6 +323,26 @@ class AnalysisNotes:
         existing = read_notes(path)
         return cls(path, existing, existing.notes, _snapshot(path))
 
+    def reload(self) -> None:
+        """Re-read the file from disk, replacing header, notes, and staleness snapshot.
+
+        This is the recovery path for a :exc:`NotesConflict`: after another writer
+        has saved, calling ``reload`` catches this instance up to the on-disk state
+        (the same state :meth:`load` would produce for the same path) so the next
+        :meth:`save` is no longer stale. Any local, unsaved edits are discarded by
+        design -- the caller is expected to reapply a pending change on top, if any.
+
+        :raises OSError: If the file exists but cannot be read.
+        """
+        if not self._path.is_file():
+            self._notes = ()
+            self._snapshot = None
+            return
+        existing = read_notes(self._path)
+        self._header = existing
+        self._notes = existing.notes
+        self._snapshot = _snapshot(self._path)
+
     @property
     def path(self) -> Path:
         """The sidecar file path; may not exist until the first :meth:`save`."""
