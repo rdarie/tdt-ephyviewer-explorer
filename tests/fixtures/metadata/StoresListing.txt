@@ -1,0 +1,30 @@
+Experiment: cnn_gp_mep_all_udp_v2
+Subject: Epi_02_Green
+User: User
+Date: 07/27/2026
+Time: 3:29:27pm
+
+Object ID : RZ2(1) - RZn Processor
+ Rate     : 24414.1 Hz
+ Store ID : Tick
+
+Object ID : eStim1 - Electrical Stim Driver
+ Store ID : eS1p
+  Mode    : Single scalar
+  Format  : Float-32
+ Store ID : eS1r
+  Mode    : Strobe controlled
+  Format  : Float-32
+
+Object ID : Wave1 - Stream Data Storage
+ Store ID : Wav1
+  Format  : Float-32
+  Rate    : 24414.1 Hz
+
+
+Flat Listing:
+StoreID  Gizmo/Hal      Description
+eS1p     eStim1         store|
+eS1r     eStim1         store|
+Tick     RZn(1)         Marking one second intervals.
+Wav1     Wave1          Streaming: ~PZAn(1).Amp1
