@@ -1,0 +1,7 @@
+Experiment: cnn_gp_mep_all_udp_v2
+Subject: Mickey
+User: User
+Start: 5:37:30pm 06/10/2026
+
+
+Stop: 5:38:14pm 06/10/2026

@@ -1,0 +1,9 @@
+Experiment: cnn_gp_mep_all_udp_v2
+Subject: Epi_02_Green
+User: User
+Start: 3:48:30pm 07/27/2026
+
+Note-1: 3:49:37pm "first run should be chan 5 but is chan 4"
+Note-2: 3:50:16pm "will correctly set chan 6 to 6 to avoid confusion"
+
+Stop: 3:57:38pm 07/27/2026
