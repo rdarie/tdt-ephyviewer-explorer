@@ -1,4 +1,7 @@
 """Tests for the eStim pulse/parameter-combination summary."""
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -6,6 +9,7 @@ from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.metadata.stim import (
     StimSchemaMismatch,
     StimSummary,
+    read_stim_summaries,
     stim_config_from,
     summarize_stim,
 )
@@ -120,6 +124,26 @@ def test_negative_chan_is_not_active() -> None:
     assert _summarize(data) == StimSummary("eS1p", 0, 0)
 
 
+def test_active_voice_with_zero_count_never_contributes_pulses() -> None:
+    # Models the real reference block: B is the return/anode electrode. chanB sweeps
+    # (so B counts as globally "active" and its columns join the combination count),
+    # but countB is 0 for every event, so B never delivers a pulse — even on events
+    # where B is chan-active and A is not.
+    data = _blank(5)
+    data[_row("chanA")] = [1, 1, 0, 1, 0]
+    data[_row("countA")] = 1.0
+    data[_row("chanB")] = [0, 5, 6, 0, 7]
+    data[_row("countB")] = 0.0
+    summary = _summarize(data)
+    # Only the 3 events with chanA > 0 (events 0, 1, 3) deliver a pulse. Events 2 and 4
+    # have chanA == 0 and chanB > 0, but countB == 0 there too, so they contribute 0 —
+    # this is exactly the 438-event gap between 15999 real events and 15561 real pulses.
+    assert summary.n_pulses == 3
+    # n_combinations still uses both voices' columns (B is active), so it distinguishes
+    # the four distinct (chanA, chanB) pairs among the 5 events (0 and 3 coincide).
+    assert summary.n_combinations == 4
+
+
 def test_stim_config_comes_from_the_packaged_config() -> None:
     sc, columns = stim_config_from(load_config())
     assert sc.store_pattern == "eS?p"
@@ -128,3 +152,50 @@ def test_stim_config_comes_from_the_packaged_config() -> None:
     assert sc.count_prefix == "count"
     assert len(columns) == 24
     assert columns[:3] == ["perA", "countA", "ampA"]
+
+
+def test_read_stim_summaries_without_headers_returns_a_single_warning() -> None:
+    summaries, warnings = read_stim_summaries(Path("ignored"), load_config(), headers=None)
+    assert summaries == []
+    assert len(warnings) == 1
+
+
+def test_read_stim_summaries_only_loads_stores_matching_the_pattern(monkeypatch) -> None:
+    from tdt_ephyviewer_explorer.metadata import stim as mod
+
+    # store_pattern is "eS?p": eS1p/eS2p match, Wav1 and Tick do not.
+    headers = {"stores": {"eS1p": {}, "Wav1": {}, "eS2p": {}, "Tick": {}}}
+    requested: list[str] = []
+
+    def fake_load_store(block_path: Path, name: str, headers: Any = None) -> dict[str, Any]:
+        requested.append(name)
+        data = _blank(1)
+        data[_row("chanA")] = 1.0
+        data[_row("countA")] = 1.0
+        return {"data": data}
+
+    monkeypatch.setattr(mod, "load_store", fake_load_store)
+    summaries, warnings = read_stim_summaries(Path("ignored"), load_config(), headers=headers)
+    assert warnings == []
+    assert sorted(requested) == ["eS1p", "eS2p"]
+    assert sorted(s.store for s in summaries) == ["eS1p", "eS2p"]
+
+
+def test_read_stim_summaries_skips_a_mismatched_store_but_keeps_the_rest(monkeypatch) -> None:
+    from tdt_ephyviewer_explorer.metadata import stim as mod
+
+    headers = {"stores": {"eS1p": {}, "eS2p": {}}}
+
+    def fake_load_store(block_path: Path, name: str, headers: Any = None) -> dict[str, Any]:
+        if name == "eS1p":
+            return {"data": np.zeros((23, 4))}  # one row short of the 24-column schema
+        data = _blank(2)
+        data[_row("chanA")] = 1.0
+        data[_row("countA")] = 1.0
+        return {"data": data}
+
+    monkeypatch.setattr(mod, "load_store", fake_load_store)
+    summaries, warnings = read_stim_summaries(Path("ignored"), load_config(), headers=headers)
+    assert [s.store for s in summaries] == ["eS2p"]
+    assert summaries[0].n_pulses == 2
+    assert any("eS1p" in w for w in warnings)

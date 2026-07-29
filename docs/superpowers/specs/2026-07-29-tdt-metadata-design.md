@@ -150,11 +150,14 @@ reuses the cache, picking a different tank clears it.
 | voice | per | count | amp | dur | chan |
 |---|---|---|---|---|---|
 | A | 0.983 | 1 | −150 | 0.8 | 51 distinct values in 1–63 |
-| B | 0.983 | 1 | 0 | 0.8 | 51 distinct values in 1–63 |
+| B | 0.983 | 0 | 0 | 0.8 | 51 distinct values in 1–63 |
 | C, D | — | — | — | — | `chan = 0` throughout → inactive |
 
-Active voices `{A, B}` → **15999 pulses · 1881 unique combinations**. This is the integration
-test's expected output.
+B is the return/anode electrode, never a current source: `chanB` sweeps but `countB` is `0`
+for every event, so B never contributes a pulse. 438 of the 15999 events have `chanA == 0`
+(no stimulating cathode) while `chanB > 0`; since B's count is always zero, those events
+deliver nothing. Active voices `{A, B}` → **15561 pulses · 1881 unique combinations**. This is
+the integration test's expected output.
 
 ## The window
 
@@ -177,7 +180,7 @@ test's expected output.
 │          IZVn(1)  IZV                     MonA      ┃                                      │
 │          …                                          ┃                                      │
 │      ▾ Stimulation                                  ┃                                      │
-│          eS1p   15999 pulses · 1881 combinations    ┃                                      │
+│          eS1p   15561 pulses · 1881 combinations    ┃                                      │
 │      Notes            2 notes       [ Expand ]      ┃                                      │
 │      Analysis notes   0 notes       [ Expand ]      ┃                                      │
 │  ▸ Epi_02_Green-260727-155924   15:59:24  10m24s    ┃                                      │
@@ -317,7 +320,7 @@ gated on `TDT_EXPLORE_TEST_BLOCK`.
 
 Extended: `test_app.py` and `test_control_window.py` gain no-tank-startup and tank-switch
 cases. `test_integration_tdt.py` gains an env-gated case asserting the reference block yields
-15999 pulses and 1881 combinations.
+15561 pulses and 1881 combinations.
 
 No test reaches a real tank path unless `TDT_EXPLORE_TEST_BLOCK` is set; all fixtures are
 copies checked into the repo.

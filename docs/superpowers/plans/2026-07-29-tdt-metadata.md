@@ -20,7 +20,7 @@
 - Only `<block>/analysis_notes.txt` may be written into a raw block directory. `Notes.txt`, `StoresListing.txt`, and all TDT binaries are read-only on every code path.
 - Notes files are **CRLF** (`\r\n`) with a trailing newline, read as UTF-8 falling back to latin-1, always written as UTF-8.
 - Qt-touching tests go behind `pytest.importorskip("ephyviewer")` with a module-scoped `qapp` fixture. Real-`tdt` tests are gated on the `TDT_EXPLORE_TEST_BLOCK` env var.
-- Reference values, asserted in the integration test: block `Epi_02_Green-260727-154827` yields **15999 pulses** and **1881 unique combinations**.
+- Reference values, asserted in the integration test: block `Epi_02_Green-260727-154827` yields **15561 pulses** and **1881 unique combinations**. (Voice B is the return electrode — `countB == 0` for every event — and 438 events have `chanA == 0`, so they deliver nothing.)
 - Never `git add` anything matched by `.gitignore`.
 
 ## File Structure
@@ -2226,10 +2226,10 @@ def test_load_details_attaches_stim_and_marks_loaded(tmp_path: Path, monkeypatch
     monkeypatch.setattr(mod, "read_headers", lambda p: _headers(["eS1p"]))
     monkeypatch.setattr(
         mod, "read_stim_summaries",
-        lambda block_path, cfg, headers=None: ([StimSummary("eS1p", 15999, 1881)], []),
+        lambda block_path, cfg, headers=None: ([StimSummary("eS1p", 15561, 1881)], []),
     )
     out = load_details(read_text_metadata(_block(tmp_path)), cfg=None)
-    assert out.stim == (StimSummary("eS1p", 15999, 1881),)
+    assert out.stim == (StimSummary("eS1p", 15561, 1881),)
     assert out.details_loaded is True
 
 
@@ -3035,7 +3035,7 @@ def _tank(tmp_path: Path, names=("Epi_02_Green-260727-154827", "Epi_02_Green-260
     return tank
 
 
-def _window(monkeypatch, stim=(StimSummary("eS1p", 15999, 1881),), warnings=()):
+def _window(monkeypatch, stim=(StimSummary("eS1p", 15561, 1881),), warnings=()):
     from tdt_ephyviewer_explorer.metadata import window as mod
     from dataclasses import replace
 
@@ -3072,7 +3072,7 @@ def test_expanding_shows_gizmos_and_stim(qapp, monkeypatch, tmp_path) -> None:
     win.expand_block("Epi_02_Green-260727-154827")
     lines = win.detail_lines("Epi_02_Green-260727-154827")
     assert any("Electrical Stim Driver" in ln for ln in lines)
-    assert any("15999 pulses · 1881 combinations" in ln for ln in lines)
+    assert any("15561 pulses · 1881 combinations" in ln for ln in lines)
 
 
 def test_details_are_loaded_once_per_block(qapp, monkeypatch, tmp_path) -> None:
@@ -3726,7 +3726,11 @@ Append to `tests/test_integration_tdt.py`:
 
 ```python
 def test_stim_summary_matches_the_reference_block() -> None:
-    """The reference block delivers 15999 pulses under 1881 distinct settings."""
+    """The reference block delivers 15561 pulses under 1881 distinct settings.
+
+    Voice B is the return electrode (``countB == 0`` for every event) and 438 of the
+    15999 events have ``chanA == 0``, so they deliver nothing: 15999 - 438 = 15561.
+    """
     from tdt_ephyviewer_explorer.config_schema import load_config
     from tdt_ephyviewer_explorer.metadata.stim import read_stim_summaries
     from tdt_ephyviewer_explorer.tank import read_headers
@@ -3739,7 +3743,7 @@ def test_stim_summary_matches_the_reference_block() -> None:
     summaries, warnings = read_stim_summaries(block, load_config(), headers=headers)
     assert warnings == []
     assert [(s.store, s.n_pulses, s.n_combinations) for s in summaries] == [
-        ("eS1p", 15999, 1881)
+        ("eS1p", 15561, 1881)
     ]
 
 
@@ -3903,7 +3907,7 @@ Then run the real-data check:
 TDT_EXPLORE_TEST_BLOCK="/c/TDT/Synapse/Tanks/cnn_gp_mep_all_udp_v2-260610-173723/Epi_02_Green-260727-154827" uv run pytest tests/test_integration_tdt.py -v
 ```
 
-Expected: passes, asserting 15999 pulses and 1881 combinations.
+Expected: passes, asserting 15561 pulses and 1881 combinations.
 
 - [ ] **Step 8: Launch the app and confirm it works**
 
@@ -3912,7 +3916,7 @@ uv run tdt-metadata --tank "C:/TDT/Synapse/Tanks/cnn_gp_mep_all_udp_v2-260610-17
 ```
 
 Confirm by hand: blocks list with durations; expanding `Epi_02_Green-260727-154827` shows the
-eStim gizmo and `15999 pulses · 1881 combinations`; the Notes Expand button shows the two real
+eStim gizmo and `15561 pulses · 1881 combinations`; the Notes Expand button shows the two real
 notes; typing an analysis note creates `analysis_notes.txt` in the block directory and leaves
 `Notes.txt` untouched; right-click opens `tdt-explore`.
 
