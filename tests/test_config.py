@@ -24,3 +24,11 @@ def test_load_config_has_processed_group() -> None:
     assert list(cfg.processed.time_column_candidates) == ["timestamp"]
     assert cfg.processed.default_label_column == "stim_site"
     assert list(cfg.processed.ignore_globs) == []
+
+
+def test_metadata_group_is_composed() -> None:
+    from tdt_ephyviewer_explorer.config_schema import load_config
+
+    cfg = load_config()
+    assert cfg.metadata.analysis_notes_filename == "analysis_notes.txt"
+    assert cfg.metadata.stim.schema == "iz_param_names"

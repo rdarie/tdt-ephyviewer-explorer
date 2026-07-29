@@ -1,0 +1,16 @@
+# @package _global_
+# Settings for the tdt-metadata browser.
+metadata:
+  # Sidecar file for post-hoc annotations, written into the block directory. This is
+  # the one documented exception to "raw block dirs are never written to".
+  analysis_notes_filename: analysis_notes.txt
+  stim:
+    # fnmatch pattern for the stim parameter store (eS1p, eS2p, …).
+    store_pattern: "eS?p"
+    # Named column schema (see schema/default.yaml) giving the store's row order.
+    schema: iz_param_names
+    # Voice suffixes appended to each parameter name (perA, countA, …).
+    voices: [A, B, C, D]
+    # Column prefixes: chan{V} > 0 marks a voice active; count{V} is pulses per train.
+    chan_prefix: chan
+    count_prefix: count

@@ -4,4 +4,5 @@ defaults:
   - schema: default
   - startup: default
   - processed: default
+  - metadata: default
   - _self_
