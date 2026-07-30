@@ -1,0 +1,8 @@
+# @package _global_
+# Impedance CSV sidecars written by the rig into the block directory.
+impedance:
+  auto_scan: true                        # scan the block dir on block select
+  globs: ["*.csv"]                       # block-dir globs; non-impedance CSVs fail the sniff
+  channel_regex: '^R(\d+)\s*\((\w+)\)$'  # group 1 = channel number, group 2 = units
+  frequency_column: "FREQUENCY (Hz)"     # absent from a file -> a single frequency group
+  min_channels: 4                        # header-sniff threshold

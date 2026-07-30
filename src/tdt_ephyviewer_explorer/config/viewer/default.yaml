@@ -10,3 +10,9 @@ viewers:
   eventlist: {}
   spiketrain: {}
   epoch: {}
+  impedance:
+    vmin: 0.0                  # kOhm
+    vmax: 200.0                # kOhm; values outside [vmin, vmax] clamp to the end colors
+    annotate: true
+    annotation_format: "{:.0f}"
+    cmap: viridis

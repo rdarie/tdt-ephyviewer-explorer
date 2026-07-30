@@ -32,3 +32,34 @@ def test_metadata_group_is_composed() -> None:
     cfg = load_config()
     assert cfg.metadata.analysis_notes_filename == "analysis_notes.txt"
     assert cfg.metadata.stim.schema == "iz_param_names"
+
+
+def test_load_config_has_impedance_group() -> None:
+    cfg = load_config()
+    assert cfg.impedance.auto_scan is True
+    assert list(cfg.impedance.globs) == ["*.csv"]
+    assert cfg.impedance.frequency_column == "FREQUENCY (Hz)"
+    assert cfg.impedance.min_channels == 4
+
+
+def test_load_config_has_impedance_viewer_defaults() -> None:
+    cfg = load_config()
+    assert cfg.viewers.impedance.vmin == 0.0
+    assert cfg.viewers.impedance.vmax == 200.0
+    assert cfg.viewers.impedance.annotate is True
+    assert cfg.viewers.impedance.annotation_format == "{:.0f}"
+    assert cfg.viewers.impedance.cmap == "viridis"
+
+
+def test_impedance_channel_regex_matches_rig_headers() -> None:
+    # The rig writes "R1 (kOhm)" ... "R64 (kOhm)"; TIME/FREQUENCY/TARGET/REF are metadata.
+    import re
+
+    rx = re.compile(load_config().impedance.channel_regex)
+    match = rx.match("R12 (kOhm)")
+    assert match is not None
+    assert match.group(1) == "12"
+    assert match.group(2) == "kOhm"
+    assert rx.match("REF (kOhm)") is None
+    assert rx.match("TIME (S)") is None
+    assert rx.match("TARGET (uA)") is None

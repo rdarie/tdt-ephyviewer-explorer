@@ -4,5 +4,6 @@ defaults:
   - schema: default
   - startup: default
   - processed: default
+  - impedance: default
   - metadata: default
   - _self_
