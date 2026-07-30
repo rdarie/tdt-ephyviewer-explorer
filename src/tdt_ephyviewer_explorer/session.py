@@ -34,17 +34,33 @@ class ProcessedSource:
 
 
 @dataclass
+class ImpedanceSource:
+    """An impedance CSV composed into a session.
+
+    :param path: Stored path (tank-relative when under the tank, else absolute).
+    :param name: Display / dock-prefix name.
+    :param attachments: Serialized attachment dicts (same shape as TDT attachments).
+    """
+
+    path: str
+    name: str
+    attachments: list[dict] = field(default_factory=list)
+
+
+@dataclass
 class Session:
     """A saved composition: which viewers are attached to which stores.
 
     :param block: Block directory name.
     :param attachments: TDT store name -> list of serialized attachment dicts.
     :param processed: Processed-parquet sources composed into this session.
+    :param impedance: Impedance CSV sidecars composed into this session.
     """
 
     block: str
     attachments: dict[str, list[dict]] = field(default_factory=dict)
     processed: list[ProcessedSource] = field(default_factory=list)
+    impedance: list[ImpedanceSource] = field(default_factory=list)
 
 
 def save_session(session: Session, tank_dir: Path, name: str) -> Path:
@@ -68,8 +84,10 @@ def load_session(path: Path) -> Session:
     container = OmegaConf.to_container(cfg, resolve=True)
     assert isinstance(container, dict)
     processed = [ProcessedSource(**ps) for ps in container.get("processed", [])]
+    impedance = [ImpedanceSource(**i) for i in container.get("impedance", [])]
     return Session(
         block=container["block"],
         attachments=container["attachments"],
         processed=processed,
+        impedance=impedance,
     )
