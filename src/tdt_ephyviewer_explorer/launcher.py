@@ -9,6 +9,11 @@ from ephyviewer import MainViewer
 from omegaconf import DictConfig, OmegaConf
 
 from tdt_ephyviewer_explorer.builders import Attachment, build_source_for, build_viewer
+from tdt_ephyviewer_explorer.impedance import (
+    ImpedanceInfo,
+    build_impedance_source,
+    classify_impedance_csv,
+)
 from tdt_ephyviewer_explorer.processed import (
     ProcessedInfo,
     build_processed_source,
@@ -73,6 +78,27 @@ def _processed_info(ps: Any, tank_dir: Path, cfg: DictConfig) -> ProcessedInfo:
     return info
 
 
+def _impedance_info(source: Any, tank_dir: Path, cfg: DictConfig) -> ImpedanceInfo:
+    """Resolve a :class:`~session.ImpedanceSource` to an :class:`~impedance.ImpedanceInfo`.
+
+    :param source: The session's ImpedanceSource.
+    :param tank_dir: Tank directory (for relative-path resolution).
+    :param cfg: Composed config.
+    :raises FileNotFoundError: If the stored CSV no longer exists.
+    :raises ValueError: If the file is no longer a readable impedance CSV.
+    """
+    path = from_stored_path(source.path, tank_dir)
+    if not path.exists():
+        raise FileNotFoundError(f"impedance source {source.path!r} not found under {tank_dir}")
+    info = classify_impedance_csv(path, cfg)
+    if info is None:
+        raise ValueError(
+            f"impedance source {source.path!r} is not a readable impedance CSV "
+            "(no R<n> columns, or no data rows)"
+        )
+    return info
+
+
 def plan_views(
     block_path: Path, session: Session, cfg: DictConfig, headers: Any | None = None
 ) -> list[ViewPlan]:
@@ -81,8 +107,9 @@ def plan_views(
     Parses the block's ``.tsq`` index once and reuses it for the header scan and
     every store load (rather than re-parsing per read), resolves each store's role,
     loads each referenced store exactly once (even with several viewers attached),
-    and builds one source per attachment. Contains no Qt/GUI code so it is
-    unit-testable headlessly.
+    and builds one source per attachment. Processed parquets and impedance CSV
+    sidecars are appended after the TDT stores, in session order. Contains no
+    Qt/GUI code so it is unit-testable headlessly.
 
     :param block_path: Block directory.
     :param session: The composition to realize.
@@ -120,6 +147,15 @@ def plan_views(
             attachment = _attachment_from_dict(d)
             source = build_processed_source(info, attachment, cfg)
             name = f"{ps.name}:{attachment.viewer_type}"
+            params = {**viewer_defaults.get(attachment.viewer_type, {}), **attachment.params}
+            plans.append(ViewPlan(name, attachment.viewer_type, params, source))
+
+    for isource in session.impedance:
+        info = _impedance_info(isource, tank_dir, cfg)
+        for d in isource.attachments:
+            attachment = _attachment_from_dict(d)
+            source = build_impedance_source(info, attachment, cfg)
+            name = f"{isource.name}:{attachment.viewer_type}"
             params = {**viewer_defaults.get(attachment.viewer_type, {}), **attachment.params}
             plans.append(ViewPlan(name, attachment.viewer_type, params, source))
     return plans

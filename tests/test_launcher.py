@@ -325,3 +325,54 @@ def test_plan_views_builds_blob_less_timeseries_with_sampling_rate_override(
     assert len(plans) == 1
     assert plans[0].name == "manual_ts:trace"
     assert plans[0].source.signals.shape == (2, 2)
+
+
+def test_plan_views_includes_impedance_sources(tmp_path, monkeypatch) -> None:
+    import shutil
+
+    from tdt_ephyviewer_explorer.session import ImpedanceSource
+
+    block = "blk"
+    block_dir = tmp_path / block
+    block_dir.mkdir()
+    fixtures = Path(__file__).parent / "fixtures"
+    shutil.copy(fixtures / "impedance_2freq.csv", block_dir / "spinal.csv")
+
+    monkeypatch.setattr(launcher_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(launcher_mod, "scan_block", lambda p, headers=None: [])
+
+    session = Session(
+        block=block,
+        impedance=[ImpedanceSource(
+            path="blk/spinal.csv", name="spinal",
+            attachments=[{"viewer_type": "impedance", "delay_ms": 0.0,
+                          "probe_path": None, "params": {"vmax": 300.0}}],
+        )],
+    )
+    plans = plan_views(block_dir, session, load_config())
+    assert len(plans) == 1
+    assert plans[0].name == "spinal:impedance"
+    assert plans[0].viewer_type == "impedance"
+    assert plans[0].params["vmax"] == 300.0        # attachment override wins
+    assert plans[0].params["cmap"] == "viridis"    # config default still merged in
+    assert plans[0].source.frequencies == (1000.0, 5000.0)
+
+
+def test_plan_views_missing_impedance_file_raises(tmp_path, monkeypatch) -> None:
+    from tdt_ephyviewer_explorer.session import ImpedanceSource
+
+    block_dir = tmp_path / "blk"
+    block_dir.mkdir()
+    monkeypatch.setattr(launcher_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(launcher_mod, "scan_block", lambda p, headers=None: [])
+
+    session = Session(
+        block="blk",
+        impedance=[ImpedanceSource(
+            path="blk/gone.csv", name="gone",
+            attachments=[{"viewer_type": "impedance", "delay_ms": 0.0,
+                          "probe_path": None, "params": {}}],
+        )],
+    )
+    with pytest.raises(FileNotFoundError, match="gone.csv"):
+        plan_views(block_dir, session, load_config())
