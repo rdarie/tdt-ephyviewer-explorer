@@ -16,17 +16,44 @@ class StimSchemaMismatch(ValueError):
 
 
 @dataclass(frozen=True)
+class VoiceSummary:
+    """Parameters delivered by one active voice of a stim parameter store.
+
+    :param voice: Voice suffix, e.g. ``"A"``.
+    :param channels: Distinct channels stimulated, ascending.
+    :param amp_min: Smallest amplitude *magnitude* delivered, in the configured units.
+    :param amp_max: Largest amplitude magnitude delivered.
+    :param amp_sign: ``"-"`` if every delivered amplitude was negative, ``"+"`` if
+        every one was positive, ``"±"`` if both polarities appear, ``""`` if the
+        schema names no amplitude column for this voice.
+    :param freq_min_hz: Lowest within-train pulse frequency in Hz, or ``None`` when no
+        event carried a positive period.
+    :param freq_max_hz: Highest within-train pulse frequency in Hz, or ``None``.
+    """
+
+    voice: str
+    channels: tuple[int, ...]
+    amp_min: float
+    amp_max: float
+    amp_sign: str
+    freq_min_hz: float | None
+    freq_max_hz: float | None
+
+
+@dataclass(frozen=True)
 class StimSummary:
     """Headline stimulation figures for one parameter store.
 
     :param store: Store code, e.g. ``"eS1p"``.
     :param n_pulses: Total pulses delivered.
     :param n_combinations: Distinct parameter settings used.
+    :param voices: One entry per active voice, in configured voice order.
     """
 
     store: str
     n_pulses: int
     n_combinations: int
+    voices: tuple[VoiceSummary, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -176,6 +203,54 @@ def _voice_mask(
     return on
 
 
+def _summarize_voice(
+    voice: str,
+    data: np.ndarray,
+    index: dict[str, int],
+    on: np.ndarray,
+    settings: StimConfig,
+) -> VoiceSummary:
+    """Reduce one active voice's on-events to channels and parameter ranges.
+
+    Every figure covers the on-events only; including the events where the voice is
+    idle would pin each minimum to zero.
+
+    :param voice: Voice suffix.
+    :param data: Parameter block, shape ``(n_columns, n_events)``.
+    :param index: Column name to row number.
+    :param on: The voice's per-event mask, from :func:`_voice_mask`.
+    :param settings: Resolved stim settings.
+    :returns: The per-voice summary.
+    """
+    channels = tuple(
+        int(c) for c in np.unique(data[index[f"{settings.chan_prefix}{voice}"]][on])
+    )
+
+    amp_min = amp_max = 0.0
+    amp_sign = ""
+    amp_key = f"{settings.amp_prefix}{voice}"
+    if amp_key in index:
+        amps = data[index[amp_key]][on]
+        amps = amps[amps != 0]
+        if amps.size:
+            magnitudes = np.abs(amps)
+            amp_min, amp_max = float(magnitudes.min()), float(magnitudes.max())
+            negative, positive = bool((amps < 0).any()), bool((amps > 0).any())
+            amp_sign = "±" if negative and positive else ("-" if negative else "+")
+
+    freq_min: float | None = None
+    freq_max: float | None = None
+    per_key = f"{settings.per_prefix}{voice}"
+    if per_key in index:
+        periods = data[index[per_key]][on]
+        periods = periods[periods > 0]
+        if periods.size:
+            frequencies = settings.per_to_hz / periods
+            freq_min, freq_max = float(frequencies.min()), float(frequencies.max())
+
+    return VoiceSummary(voice, channels, amp_min, amp_max, amp_sign, freq_min, freq_max)
+
+
 def summarize_stim(
     store: str,
     data: np.ndarray,
@@ -231,7 +306,12 @@ def summarize_stim(
         if count_key not in index:
             continue
         per_event = np.maximum(per_event, np.where(on, data[index[count_key]], 0.0))
-    return StimSummary(store, int(per_event.sum()), n_combinations)
+    voices = tuple(
+        _summarize_voice(voice, data, index, masks[voice], settings)
+        for voice in settings.voices
+        if voice in masks
+    )
+    return StimSummary(store, int(per_event.sum()), n_combinations, voices)
 
 
 def read_stim_summaries(

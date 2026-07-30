@@ -10,6 +10,7 @@ from tdt_ephyviewer_explorer.metadata.stim import (
     StimConfig,
     StimSchemaMismatch,
     StimSummary,
+    VoiceSummary,
     format_channels,
     format_range,
     read_stim_summaries,
@@ -48,7 +49,8 @@ def test_single_active_voice_one_pulse_each() -> None:
     data[_row("chanA")] = 1.0
     data[_row("countA")] = 1.0
     data[_row("ampA")] = -100.0
-    assert _summarize(data) == StimSummary("eS1p", 10, 1)
+    summary = _summarize(data)
+    assert (summary.n_pulses, summary.n_combinations) == (10, 1)
 
 
 def test_sweeping_a_channel_counts_distinct_combinations() -> None:
@@ -56,7 +58,8 @@ def test_sweeping_a_channel_counts_distinct_combinations() -> None:
     data[_row("chanA")] = [1, 1, 2, 2, 3, 3]
     data[_row("countA")] = 1.0
     data[_row("ampA")] = -100.0
-    assert _summarize(data) == StimSummary("eS1p", 6, 3)
+    summary = _summarize(data)
+    assert (summary.n_pulses, summary.n_combinations) == (6, 3)
 
 
 def test_two_active_voices_combine_into_pairs() -> None:
@@ -67,7 +70,8 @@ def test_two_active_voices_combine_into_pairs() -> None:
     data[_row("countB")] = 1.0
     data[_row("ampA")] = -100.0
     data[_row("ampB")] = -100.0
-    assert _summarize(data) == StimSummary("eS1p", 4, 4)
+    summary = _summarize(data)
+    assert (summary.n_pulses, summary.n_combinations) == (4, 4)
 
 
 def test_count_greater_than_one_yields_more_pulses_than_events() -> None:
@@ -109,7 +113,8 @@ def test_idle_voice_with_nonzero_params_does_not_inflate_combinations() -> None:
     data[_row("ampA")] = -100.0
     data[_row("ampC")] = [-1.0, -2.0, -3.0]
     data[_row("perC")] = 0.983
-    assert _summarize(data) == StimSummary("eS1p", 3, 1)
+    summary = _summarize(data)
+    assert (summary.n_pulses, summary.n_combinations) == (3, 1)
 
 
 def test_inactive_voice_events_contribute_no_pulses() -> None:
@@ -286,3 +291,82 @@ def test_format_range_strips_a_trailing_zero_decimal() -> None:
 
 def test_format_range_keeps_a_meaningful_decimal() -> None:
     assert format_range(0.5, 12.5, "Hz") == "0.5–12.5 Hz"
+
+
+def test_voice_rows_carry_channels_amplitude_and_frequency() -> None:
+    data = _blank(3)
+    data[_row("chanA")] = [1, 2, 3]
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = [-100.0, -400.0, -800.0]
+    data[_row("perA")] = [100.0, 50.0, 20.0]  # ms -> 10, 20, 50 Hz
+    (voice,) = _summarize(data).voices
+    assert voice == VoiceSummary("A", (1, 2, 3), 100.0, 800.0, "-", 10.0, 50.0)
+
+
+def test_only_active_voices_get_a_row() -> None:
+    data = _blank(2)
+    data[_row("chanA")] = 1.0
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = -100.0
+    data[_row("chanB")] = 7.0  # wired, but ampB == 0: no charge, no row
+    assert [v.voice for v in _summarize(data).voices] == ["A"]
+
+
+def test_voice_rows_follow_configured_voice_order() -> None:
+    data = _blank(1)
+    for voice, channel in (("C", 3), ("A", 1)):
+        data[_row(f"chan{voice}")] = float(channel)
+        data[_row(f"count{voice}")] = 1.0
+        data[_row(f"amp{voice}")] = -100.0
+    assert [v.voice for v in _summarize(data).voices] == ["A", "C"]
+
+
+def test_ranges_ignore_events_where_the_voice_is_off() -> None:
+    # The stray -5 µA sits on an event where chanA is 0, so it must not lower amp_min.
+    data = _blank(3)
+    data[_row("chanA")] = [1, 0, 1]
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = [-100.0, -5.0, -800.0]
+    (voice,) = _summarize(data).voices
+    assert (voice.amp_min, voice.amp_max) == (100.0, 800.0)
+    assert voice.channels == (1,)
+
+
+def test_mixed_polarity_is_marked() -> None:
+    data = _blank(2)
+    data[_row("chanA")] = 1.0
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = [-100.0, 800.0]
+    (voice,) = _summarize(data).voices
+    assert voice.amp_sign == "±"
+    assert (voice.amp_min, voice.amp_max) == (100.0, 800.0)
+
+
+def test_anodic_only_amplitudes_are_marked_positive() -> None:
+    data = _blank(2)
+    data[_row("chanA")] = 1.0
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = 300.0
+    (voice,) = _summarize(data).voices
+    assert voice.amp_sign == "+"
+
+
+def test_a_nonpositive_period_yields_no_frequency() -> None:
+    data = _blank(2)
+    data[_row("chanA")] = 1.0
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = -100.0
+    data[_row("perA")] = 0.0  # never divide by it
+    (voice,) = _summarize(data).voices
+    assert voice.freq_min_hz is None
+    assert voice.freq_max_hz is None
+
+
+def test_a_zero_period_event_drops_out_of_the_frequency_range() -> None:
+    data = _blank(3)
+    data[_row("chanA")] = 1.0
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = -100.0
+    data[_row("perA")] = [100.0, 0.0, 25.0]
+    (voice,) = _summarize(data).voices
+    assert (voice.freq_min_hz, voice.freq_max_hz) == (10.0, 40.0)
