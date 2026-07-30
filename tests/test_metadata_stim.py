@@ -249,8 +249,8 @@ def test_format_channels_collapses_contiguous_runs() -> None:
     assert format_channels((1, 2, 3, 4, 5, 6, 7, 8, 12, 14), 5) == "1–8,12,14"
 
 
-def test_format_channels_names_the_count_for_a_lone_range() -> None:
-    assert format_channels(tuple(range(1, 33)), 5) == "1–32 (32 ch)"
+def test_format_channels_leaves_a_lone_range_bare() -> None:
+    assert format_channels(tuple(range(1, 33)), 5) == "1–32"
 
 
 def test_format_channels_truncates_a_long_scattered_list() -> None:
@@ -376,7 +376,7 @@ def test_a_zero_period_event_drops_out_of_the_frequency_range() -> None:
 
 def _voice(**kwargs: Any) -> VoiceSummary:
     fields: dict[str, Any] = dict(
-        voice="A", channels=(1, 2, 3), amp_min=100.0, amp_max=800.0,
+        voice="A", channels=(1, 3, 5), amp_min=100.0, amp_max=800.0,
         amp_sign="-", freq_min_hz=10.0, freq_max_hz=50.0,
     )
     fields.update(kwargs)
@@ -384,17 +384,17 @@ def _voice(**kwargs: Any) -> VoiceSummary:
 
 
 def test_voice_line_joins_channels_amplitude_and_frequency() -> None:
-    assert format_voice_line(_voice(), SETTINGS) == "ch 1–3 (3 ch) · -100–800 µA · 10–50 Hz"
+    assert format_voice_line(_voice(), SETTINGS) == "ch 1,3,5 · -100–800 µA · 10–50 Hz"
 
 
 def test_voice_line_drops_the_frequency_clause_when_there_is_none() -> None:
     line = format_voice_line(_voice(freq_min_hz=None, freq_max_hz=None), SETTINGS)
-    assert line == "ch 1–3 (3 ch) · -100–800 µA"
+    assert line == "ch 1,3,5 · -100–800 µA"
 
 
 def test_voice_line_drops_the_amplitude_clause_when_the_schema_has_none() -> None:
     line = format_voice_line(_voice(amp_sign="", amp_min=0.0, amp_max=0.0), SETTINGS)
-    assert line == "ch 1–3 (3 ch) · 10–50 Hz"
+    assert line == "ch 1,3,5 · 10–50 Hz"
 
 
 def test_voice_line_honours_the_channel_cap() -> None:

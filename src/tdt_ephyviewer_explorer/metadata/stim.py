@@ -116,9 +116,8 @@ def format_channels(channels: Sequence[int], max_listed: int) -> str:
 
     Runs of three or more consecutive channels become ``a–b`` tokens; shorter runs
     stay as individual numbers. Past ``max_listed`` tokens the list truncates with an
-    ellipsis. A ``(N ch)`` suffix carries the distinct channel count whenever the text
-    alone does not state it -- that is, when the list truncated or rendered as a
-    single range.
+    ellipsis. A ``(N ch)`` suffix appears only when the list was truncated, stating
+    the full distinct channel count.
 
     :param channels: Distinct channels, ascending.
     :param max_listed: Tokens to show before truncating.
@@ -148,8 +147,6 @@ def format_channels(channels: Sequence[int], max_listed: int) -> str:
             text += ",…"
         else:
             text = "…"
-    lone_range = len(tokens) == 1 and "–" in tokens[0]
-    if truncated or lone_range:
         text = f"{text} ({len(ordered)} ch)"
     return text
 
