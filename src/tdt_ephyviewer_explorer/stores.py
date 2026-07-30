@@ -70,6 +70,7 @@ VALID_VIEWERS: dict[str, tuple[str, ...]] = {
     "event": ("eventlist", "spiketrain"),
     "epoch": ("epoch", "spiketrain"),
     "snip": ("spiketrain",),
+    "impedance": ("impedance",),
 }
 
 TDT_TYPE_TO_ROLE: dict[str, str] = {

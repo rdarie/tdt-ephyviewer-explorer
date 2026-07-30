@@ -16,6 +16,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from tdt_ephyviewer_explorer.builders import Attachment
+from tdt_ephyviewer_explorer.probe import Layout, ProbeMap, load_probe, probe_layout
+
 log = logging.getLogger(__name__)
 
 
@@ -198,4 +201,111 @@ def read_impedance(path: Path, cfg: Any) -> ImpedanceData:
         channel_numbers=tuple(numbers),
         units=units or "",
         groups=groups,
+    )
+
+
+@dataclass(frozen=True)
+class ImpedanceGridSource:
+    """Ephyviewer-style source for the impedance viewer.
+
+    Deliberately exposes no ``t_start``: impedance is a per-block property, not a
+    signal, and ``MainViewer.add_view`` keys off that attribute when deciding
+    whether to widen the navigation range.
+
+    :param name: Display name (the CSV stem).
+    :param units: Impedance units, e.g. ``"kOhm"``.
+    :param frequencies: One entry per grid; ``None`` when the file has no
+        frequency column.
+    :param grids: ``(n_rows, n_cols)`` arrays, NaN where no contact occupies the
+        cell. Row ``0`` renders at the top.
+    :param labels: ``(n_rows, n_cols)`` object array of per-cell contact labels,
+        ``""`` for empty cells.
+    :param metadata: Averaged metadata columns, one dict per grid.
+    """
+
+    name: str
+    units: str
+    frequencies: tuple[float | None, ...]
+    grids: tuple[np.ndarray, ...]
+    labels: np.ndarray
+    metadata: tuple[dict[str, float], ...]
+
+
+def build_grid_source(
+    data: ImpedanceData, probe: ProbeMap | None, layout: Layout | None
+) -> ImpedanceGridSource:
+    """Place per-channel impedances onto a probe-topology grid.
+
+    Contact ``k`` is wired to acquisition channel ``probe.order[k]``, and the CSV
+    numbers its channels from 1, so contact ``k`` takes the column ``R{order[k]+1}``.
+    Without a probe the contacts form a 1xN strip in CSV column order.
+
+    :param data: The reduced impedance data.
+    :param probe: Loaded probe map, or ``None`` for a strip layout.
+    :param layout: Grid placement from :func:`~probe.probe_layout`, or ``None``.
+    :returns: The viewer source.
+    :raises ValueError: If the probe's contact count differs from the CSV's
+        channel count, or a required ``R<n>`` column is absent.
+    """
+    n_channels = len(data.channel_numbers)
+    if probe is None or layout is None:
+        col = np.arange(n_channels)
+        row = np.zeros(n_channels, dtype=int)
+        n_cols, n_rows = n_channels, 1
+        labels = [f"R{n}" for n in data.channel_numbers]
+        wanted = list(data.channel_numbers)
+    else:
+        if probe.order.size != n_channels:
+            raise ValueError(
+                f"probe has {probe.order.size} contacts but {data.name} has "
+                f"{n_channels} impedance channels"
+            )
+        col, row = layout.col, layout.row
+        n_cols, n_rows = layout.n_cols, layout.n_rows
+        labels = list(probe.names)
+        wanted = [int(o) + 1 for o in probe.order]
+
+    index_of = {number: j for j, number in enumerate(data.channel_numbers)}
+    missing = sorted({n for n in wanted if n not in index_of})
+    if missing:
+        raise ValueError(
+            f"{data.name} has no column for channel(s) {missing}; present "
+            f"channels are {sorted(index_of)}"
+        )
+
+    cell_labels = np.full((n_rows, n_cols), "", dtype=object)
+    for k in range(len(wanted)):
+        cell_labels[row[k], col[k]] = labels[k]
+    grids = []
+    for group in data.groups:
+        grid = np.full((n_rows, n_cols), np.nan)
+        for k, number in enumerate(wanted):
+            grid[row[k], col[k]] = group.values[index_of[number]]
+        grids.append(grid)
+
+    return ImpedanceGridSource(
+        name=data.name,
+        units=data.units,
+        frequencies=tuple(g.frequency for g in data.groups),
+        grids=tuple(grids),
+        labels=cell_labels,
+        metadata=tuple(g.metadata for g in data.groups),
+    )
+
+
+def build_impedance_source(
+    info: ImpedanceInfo, attachment: Attachment, cfg: Any
+) -> ImpedanceGridSource:
+    """Read an impedance CSV and build the source for one attachment.
+
+    :param info: The classified impedance CSV.
+    :param attachment: The viewer attachment; ``probe_path`` supplies the layout.
+    :param cfg: Composed config (uses ``cfg.impedance``).
+    :returns: The viewer source.
+    """
+    data = read_impedance(info.path, cfg)
+    if attachment.probe_path is None:
+        return build_grid_source(data, None, None)
+    return build_grid_source(
+        data, load_probe(attachment.probe_path), probe_layout(attachment.probe_path)
     )

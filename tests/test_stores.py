@@ -125,3 +125,9 @@ def test_load_store_reads_own_index_without_headers(monkeypatch) -> None:
     monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
     assert load_store(__import__("pathlib").Path("blk"), "UDP1") == "S"
     assert "headers" not in calls[0]  # backward compatible: no headers kwarg
+
+
+def test_impedance_role_allows_only_the_impedance_viewer() -> None:
+    from tdt_ephyviewer_explorer.stores import VALID_VIEWERS
+
+    assert VALID_VIEWERS["impedance"] == ("impedance",)
