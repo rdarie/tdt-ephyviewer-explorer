@@ -114,7 +114,13 @@ def format_channels(channels: Sequence[int], max_listed: int) -> str:
             start = prev = value
 
     truncated = len(tokens) > max_listed
-    text = ",".join(tokens[:max_listed]) + (",…" if truncated else "")
+    shown = tokens[:max(0, max_listed)]
+    text = ",".join(shown)
+    if truncated:
+        if text:
+            text += ",…"
+        else:
+            text = "…"
     lone_range = len(tokens) == 1 and "–" in tokens[0]
     if truncated or lone_range:
         text = f"{text} ({len(ordered)} ch)"

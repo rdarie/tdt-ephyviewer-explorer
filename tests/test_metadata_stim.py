@@ -229,3 +229,8 @@ def test_format_channels_keeps_a_two_long_run_as_two_numbers() -> None:
 
 def test_format_channels_of_nothing_is_empty() -> None:
     assert format_channels((), 5) == ""
+
+
+def test_format_channels_handles_zero_or_negative_max_listed() -> None:
+    assert format_channels((1, 2, 3), 0) == "… (3 ch)"
+    assert format_channels((1, 2, 3), -1) == "… (3 ch)"
