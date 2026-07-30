@@ -171,7 +171,8 @@ def test_format_channels_names_the_count_for_a_lone_range() -> None:
 
 
 def test_format_channels_truncates_a_long_scattered_list() -> None:
-    assert format_channels((1, 3, 5, 7, 9, 11, 13, 15, 17), 5) == "1,3,5,7,9,… (17 ch)"
+    channels = tuple(range(1, 34, 2))  # 17 odd channels, 1..33
+    assert format_channels(channels, 5) == "1,3,5,7,9,… (17 ch)"
 
 
 def test_format_channels_leaves_a_single_channel_bare() -> None:
@@ -886,7 +887,7 @@ def test_voice_line_drops_the_amplitude_clause_when_the_schema_has_none() -> Non
 
 
 def test_voice_line_honours_the_channel_cap() -> None:
-    voice = _voice(channels=(1, 3, 5, 7, 9, 11, 13, 15, 17))
+    voice = _voice(channels=tuple(range(1, 34, 2)))  # 17 odd channels, 1..33
     assert format_voice_line(voice, SETTINGS).startswith("ch 1,3,5,7,9,… (17 ch) · ")
 
 
