@@ -150,14 +150,14 @@ Two pure functions in `stim.py`, testable without Qt or a block:
 **`format_channels(channels, max_listed)`** — collapse contiguous runs of three or more
 into `a–b` tokens, then join with commas. `max_listed` counts **tokens**, not channels:
 past that many, the list truncates with `…`. The `(N ch)` suffix carries the distinct
-channel count, and appears when the list was truncated or when it rendered as a single
-range token — in both cases the text alone does not say how many channels were actually
-stimulated.
+channel count and appears **only when the list was truncated** — a range states its own
+extent, so `1–32` needs no count, while an elided list gives the reader no way to know
+how many channels it stands for.
 
 | Input | Output |
 | --- | --- |
 | `(1,2,3,4,5,6,7,8,12,14)` | `1–8,12,14` |
-| `(1..32)` | `1–32 (32 ch)` |
+| `(1..32)` | `1–32` |
 | `(1,3,5,…,33)` (17 odd channels) | `1,3,5,7,9,… (17 ch)` |
 | `(12,)` | `12` |
 
