@@ -289,6 +289,7 @@ class ControlWindow(QtWidgets.QWidget):
         add_imp_btn = QtWidgets.QPushButton("Add impedance CSV…")
         add_imp_btn.clicked.connect(self._on_add_impedance)
         layout.addWidget(add_imp_btn)
+        self.setWindowTitle("tdt-explore")
 
     def set_tank(self, tank_dir: Path, block: str | None = None) -> None:
         """Point the window at a tank, populate the block selector, and load a block.
