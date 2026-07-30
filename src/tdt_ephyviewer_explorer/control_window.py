@@ -10,13 +10,24 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
 
 from tdt_ephyviewer_explorer.config_schema import load_config
+from tdt_ephyviewer_explorer.impedance import (
+    ImpedanceInfo,
+    classify_impedance_csv,
+    scan_impedance,
+)
 from tdt_ephyviewer_explorer.processed import (
     ProcessedInfo,
     classify,
     scan_preprocessed,
     to_stored_path,
 )
-from tdt_ephyviewer_explorer.session import ProcessedSource, Session, load_session, save_session
+from tdt_ephyviewer_explorer.session import (
+    ImpedanceSource,
+    ProcessedSource,
+    Session,
+    load_session,
+    save_session,
+)
 from tdt_ephyviewer_explorer.stores import ResolvedStore, resolve_role, rules_from_config
 from tdt_ephyviewer_explorer.tank import list_blocks, read_headers, scan_block
 from tdt_ephyviewer_explorer.tank_picker import TankPicker
@@ -91,6 +102,47 @@ def build_processed_param_spec(
     return groups
 
 
+def build_impedance_param_spec(
+    infos: list[ImpedanceInfo], viewer_defaults: dict
+) -> list[dict]:
+    """Build parametertree groups for impedance CSV sources.
+
+    Each group carries readonly ``impedance_path``/``impedance_name`` so
+    :func:`spec_to_session` can round-trip it into a
+    :class:`~session.ImpedanceSource`. Unlike store and parquet groups there is no
+    ``reorder`` checkbox: here the probe file *is* the grid layout, so a non-empty
+    ``probe_file`` is used directly.
+
+    :param infos: Classified impedance CSVs.
+    :param viewer_defaults: Per-viewer default params.
+    :returns: A list of group-parameter dicts.
+    """
+    groups: list[dict] = []
+    for info in infos:
+        frequencies = ", ".join(f"{f:g}" for f in info.frequencies) or "n/a"
+        children: list[dict] = [
+            {"name": "impedance_path", "type": "str", "value": str(info.path), "readonly": True},
+            {"name": "impedance_name", "type": "str", "value": info.name, "readonly": True},
+            {"name": "channels", "type": "int", "value": len(info.channel_numbers), "readonly": True},
+            {"name": "frequencies", "type": "str", "value": frequencies, "readonly": True},
+            {"name": "probe_file", "type": "str", "value": ""},
+            {
+                "name": "Viewers",
+                "type": "group",
+                "children": [
+                    {
+                        "name": "impedance",
+                        "type": "bool",
+                        "value": False,
+                        "children": _params_children(viewer_defaults.get("impedance", {})),
+                    }
+                ],
+            },
+        ]
+        groups.append({"name": info.name, "type": "group", "children": children})
+    return groups
+
+
 def _params_children(defaults: dict) -> list[dict]:
     """Turn a flat viewer-defaults dict into parametertree children."""
     out: list[dict] = []
@@ -103,8 +155,9 @@ def _params_children(defaults: dict) -> list[dict]:
 def spec_to_session(block: str, param_state: dict) -> Session:
     """Convert a saved parametertree state into a :class:`Session`.
 
-    Groups carrying ``source_path`` become :class:`~session.ProcessedSource` entries;
-    all others are TDT store attachments.
+    Groups carrying ``impedance_path`` become :class:`~session.ImpedanceSource`
+    entries, groups carrying ``source_path`` become
+    :class:`~session.ProcessedSource` entries; all others are TDT store attachments.
 
     :param block: Block name.
     :param param_state: Per-group tree state.
@@ -112,11 +165,20 @@ def spec_to_session(block: str, param_state: dict) -> Session:
     """
     attachments: dict[str, list[dict]] = {}
     processed: list[ProcessedSource] = []
+    impedance: list[ImpedanceSource] = []
     for name, state in param_state.items():
         entries = _enabled_attachments(state)
         if not entries:
             continue
-        if "source_path" in state:
+        if "impedance_path" in state:
+            impedance.append(
+                ImpedanceSource(
+                    path=str(state["impedance_path"]),
+                    name=str(state.get("impedance_name", name)),
+                    attachments=entries,
+                )
+            )
+        elif "source_path" in state:
             fs = state.get("fs")
             processed.append(
                 ProcessedSource(
@@ -129,11 +191,18 @@ def spec_to_session(block: str, param_state: dict) -> Session:
             )
         else:
             attachments[name] = entries
-    return Session(block=block, attachments=attachments, processed=processed)
+    return Session(
+        block=block, attachments=attachments, processed=processed, impedance=impedance
+    )
 
 
 def _enabled_attachments(state: dict) -> list[dict]:
     """Extract enabled viewer attachments from one group's tree state.
+
+    Store and parquet groups gate the probe behind an explicit ``reorder`` checkbox;
+    impedance groups have no such key, because there the probe file *is* the grid
+    layout rather than an optional reordering, so a non-empty ``probe_file`` is
+    used directly.
 
     :param state: One group's tree state (``delay_ms``, optional ``probe_file``/
         ``reorder``, and a ``Viewers`` subgroup).
@@ -141,6 +210,8 @@ def _enabled_attachments(state: dict) -> list[dict]:
     """
     viewers = state.get("Viewers", {})
     probe = state.get("probe_file") or None
+    if "reorder" in state and not state["reorder"]:
+        probe = None
     entries: list[dict] = []
     for vt, vstate in viewers.items():
         if not vstate.get("_enabled"):
@@ -150,7 +221,7 @@ def _enabled_attachments(state: dict) -> list[dict]:
             {
                 "viewer_type": vt,
                 "delay_ms": float(state.get("delay_ms", 0.0)),
-                "probe_path": probe if state.get("reorder") else None,
+                "probe_path": probe,
                 "params": params,
             }
         )
@@ -214,6 +285,10 @@ class ControlWindow(QtWidgets.QWidget):
         add_btn = QtWidgets.QPushButton("Add processed…")
         add_btn.clicked.connect(self._on_add_processed)
         layout.addWidget(add_btn)
+
+        add_imp_btn = QtWidgets.QPushButton("Add impedance CSV…")
+        add_imp_btn.clicked.connect(self._on_add_impedance)
+        layout.addWidget(add_imp_btn)
 
     def set_tank(self, tank_dir: Path, block: str | None = None) -> None:
         """Point the window at a tank, populate the block selector, and load a block.
@@ -308,6 +383,7 @@ class ControlWindow(QtWidgets.QWidget):
         self._root.clearChildren()
         self._root.addChildren(spec)
         self._append_processed_groups(block_path)
+        self._append_impedance_groups(block_path)
         self._launch_btn.setEnabled(True)
 
     def _append_processed_groups(self, block_path: Path) -> None:
@@ -327,6 +403,58 @@ class ControlWindow(QtWidgets.QWidget):
         if self._tank_dir is None:
             return infos
         return [replace(i, path=Path(to_stored_path(i.path, self._tank_dir))) for i in infos]
+
+    def _append_impedance_groups(self, block_path: Path) -> None:
+        """Auto-scan the block dir for impedance CSVs and add their groups."""
+        infos = scan_impedance(block_path, self._cfg)
+        if infos:
+            self._root.addChildren(
+                build_impedance_param_spec(
+                    self._with_stored_impedance(infos), self._viewer_defaults
+                )
+            )
+
+    def _with_stored_impedance(self, infos: list[ImpedanceInfo]) -> list[ImpedanceInfo]:
+        """Return copies of ``infos`` whose ``path`` is the stored (rel/abs) form."""
+        from dataclasses import replace
+
+        if self._tank_dir is None:
+            return infos
+        return [replace(i, path=Path(to_stored_path(i.path, self._tank_dir))) for i in infos]
+
+    def _on_add_impedance(self) -> None:
+        """Prompt for impedance CSVs and add them as groups."""
+        paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
+            self, "Add impedance CSV(s)", "", "CSV (*.csv)"
+        )
+        if paths:
+            self.add_impedance_paths([Path(p) for p in paths])
+
+    def add_impedance_paths(self, paths: list[Path]) -> None:
+        """Classify each CSV and append it as an impedance group.
+
+        A file that is not an impedance CSV, or that has a valid header but no data
+        rows, is reported rather than silently dropped.
+
+        :param paths: CSV file paths (any location).
+        """
+        infos: list[ImpedanceInfo] = []
+        for path in paths:
+            info = classify_impedance_csv(path, self._cfg)
+            if info is None:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Not an impedance CSV",
+                    f"{path.name} has no R<n> impedance columns, or no data rows.",
+                )
+                continue
+            infos.append(info)
+        if infos:
+            self._root.addChildren(
+                build_impedance_param_spec(
+                    self._with_stored_impedance(infos), self._viewer_defaults
+                )
+            )
 
     def _on_add_processed(self) -> None:
         """Prompt for parquet files and add them as processed groups."""
@@ -443,9 +571,25 @@ class ControlWindow(QtWidgets.QWidget):
         if new_infos:
             self._root.addChildren(build_processed_param_spec(new_infos, self._viewer_defaults))
 
+        new_impedance = [
+            ImpedanceInfo(path=Path(i.path), name=i.name, frequencies=(),
+                          channel_numbers=(), units="")
+            for i in session.impedance
+            if i.name not in existing
+        ]
+        if new_impedance:
+            self._root.addChildren(
+                build_impedance_param_spec(new_impedance, self._viewer_defaults)
+            )
+
         by_name_processed = {ps.name: ps.attachments for ps in session.processed}
+        by_name_impedance = {i.name: i.attachments for i in session.impedance}
         for store in self._root.children():
-            entries = session.attachments.get(store.name(), []) or by_name_processed.get(store.name(), [])
+            entries = (
+                session.attachments.get(store.name(), [])
+                or by_name_processed.get(store.name(), [])
+                or by_name_impedance.get(store.name(), [])
+            )
             by_type = {e["viewer_type"]: e for e in entries}
             for child in store.children():
                 if child.name() == "Viewers":

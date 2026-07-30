@@ -418,3 +418,80 @@ def test_set_tank_updates_the_picker_without_reentering(qapp, monkeypatch, tmp_p
     cw.set_tank(tank)  # programmatic: picker must display it, not re-emit
     assert cw.picker.tank_dir == tank
     assert calls == []
+
+
+# --- impedance CSV groups ---
+from pathlib import Path
+
+from tdt_ephyviewer_explorer.control_window import (
+    _enabled_attachments,
+    build_impedance_param_spec,
+    spec_to_session,
+)
+from tdt_ephyviewer_explorer.impedance import ImpedanceInfo
+from tdt_ephyviewer_explorer.session import ImpedanceSource
+
+
+def _info() -> ImpedanceInfo:
+    return ImpedanceInfo(
+        path=Path("spinal.csv"), name="spinal", frequencies=(1000.0, 5000.0),
+        channel_numbers=(1, 2, 3, 4), units="kOhm",
+    )
+
+
+def test_build_impedance_param_spec_group() -> None:
+    spec = build_impedance_param_spec([_info()], {"impedance": {"vmax": 200.0}})
+    assert spec[0]["name"] == "spinal"
+    children = {c["name"]: c for c in spec[0]["children"]}
+    assert children["impedance_path"]["value"] == "spinal.csv"
+    assert children["impedance_name"]["value"] == "spinal"
+    assert children["channels"]["value"] == 4
+    assert children["frequencies"]["value"] == "1000, 5000"
+    assert children["probe_file"]["value"] == ""
+    assert "reorder" not in children  # probe IS the layout, not an optional reorder
+    viewers = children["Viewers"]["children"]
+    assert [v["name"] for v in viewers] == ["impedance"]
+    assert {c["name"] for c in viewers[0]["children"]} == {"vmax"}
+
+
+def test_build_impedance_param_spec_reports_no_frequencies() -> None:
+    info = ImpedanceInfo(Path("x.csv"), "x", (), (1, 2, 3, 4), "kOhm")
+    children = {c["name"]: c for c in build_impedance_param_spec([info], {})[0]["children"]}
+    assert children["frequencies"]["value"] == "n/a"
+
+
+def test_spec_to_session_makes_impedance_source() -> None:
+    state = {
+        "spinal": {
+            "impedance_path": "spinal.csv",
+            "impedance_name": "spinal",
+            "probe_file": "probes/tdt_64ch.json",
+            "Viewers": {"impedance": {"_enabled": True, "vmax": 300.0}},
+        }
+    }
+    session = spec_to_session("blk", state)
+    assert session.attachments == {}
+    assert session.processed == []
+    assert session.impedance == [
+        ImpedanceSource(
+            path="spinal.csv", name="spinal",
+            attachments=[{
+                "viewer_type": "impedance", "delay_ms": 0.0,
+                "probe_path": "probes/tdt_64ch.json", "params": {"vmax": 300.0},
+            }],
+        )
+    ]
+
+
+def test_enabled_attachments_uses_probe_without_a_reorder_key() -> None:
+    state = {"probe_file": "p.json", "Viewers": {"impedance": {"_enabled": True}}}
+    assert _enabled_attachments(state)[0]["probe_path"] == "p.json"
+
+
+def test_enabled_attachments_still_gates_probe_behind_reorder() -> None:
+    # Store and parquet groups keep their explicit opt-in checkbox.
+    state = {"probe_file": "p.json", "reorder": False,
+             "Viewers": {"trace": {"_enabled": True}}}
+    assert _enabled_attachments(state)[0]["probe_path"] is None
+    state["reorder"] = True
+    assert _enabled_attachments(state)[0]["probe_path"] == "p.json"
