@@ -376,3 +376,64 @@ def test_plan_views_missing_impedance_file_raises(tmp_path, monkeypatch) -> None
     )
     with pytest.raises(FileNotFoundError, match="gone.csv"):
         plan_views(block_dir, session, load_config())
+
+
+# --- impedance viewer (Qt smoke tests) ---
+
+
+def _grid_source(n_freq: int = 1):
+    from tdt_ephyviewer_explorer.impedance import ImpedanceGridSource
+
+    grid = np.array([[10.0, 20.0], [30.0, np.nan]])
+    return ImpedanceGridSource(
+        name="spinal", units="kOhm",
+        frequencies=tuple(1000.0 * (k + 1) for k in range(n_freq)),
+        grids=tuple(grid + 100.0 * k for k in range(n_freq)),
+        labels=np.array([["A 00", "B 01"], ["C 02", ""]], dtype=object),
+        metadata=tuple({"REF (kOhm)": 5.0} for _ in range(n_freq)),
+    )
+
+
+def test_build_viewer_returns_impedance_viewer(qapp) -> None:
+    view = build_viewer("impedance", _grid_source(), name="spinal:impedance",
+                        params={"vmax": 50.0, "annotate": True})
+    assert view.name == "spinal:impedance"
+    assert view.params["vmax"] == 50.0
+    assert view.combo_freq.count() == 1
+    assert view.combo_freq.isHidden()  # single frequency -> selector hidden
+
+
+def test_impedance_viewer_shows_selector_for_multiple_frequencies(qapp) -> None:
+    view = build_viewer("impedance", _grid_source(n_freq=2), name="s:impedance", params={})
+    assert view.combo_freq.count() == 2
+    assert not view.combo_freq.isHidden()
+    view.combo_freq.setCurrentIndex(1)
+    assert view.footer.text().startswith("spinal")
+    assert "2000 Hz" in view.footer.text()
+
+
+def test_impedance_viewer_annotates_only_non_nan_cells(qapp) -> None:
+    view = build_viewer("impedance", _grid_source(), name="s:impedance",
+                        params={"annotate": True, "vmin": 0.0, "vmax": 40.0})
+    assert len(view._texts) == 3  # the NaN cell gets no label
+    view.params["annotate"] = False
+    assert view._texts == []
+
+
+def test_impedance_viewer_rejects_inverted_levels(qapp) -> None:
+    # Set the params with the refresh slot detached, then refresh explicitly: an
+    # exception raised inside a Qt slot is not reliably propagated to the caller.
+    view = build_viewer("impedance", _grid_source(), name="s:impedance", params={})
+    view.params.sigTreeStateChanged.disconnect(view._on_change)
+    view.params["vmin"] = 100.0
+    view.params["vmax"] = 10.0
+    with pytest.raises(ValueError, match="must exceed"):
+        view.refresh()
+
+
+def test_impedance_viewer_seek_is_inert(qapp) -> None:
+    # Impedance is not a signal: seeking must not raise and must not change the grid.
+    view = build_viewer("impedance", _grid_source(), name="s:impedance", params={})
+    before = view.footer.text()
+    view.seek(12.5)
+    assert view.footer.text() == before

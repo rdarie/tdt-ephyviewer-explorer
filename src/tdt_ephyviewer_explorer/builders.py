@@ -24,6 +24,7 @@ from hydra.utils import instantiate
 from tdt_ephyviewer_explorer.formatters.base import GenericFormatter, StimFormatter
 from tdt_ephyviewer_explorer.probe import ProbeMap, load_probe, reorder_channels
 from tdt_ephyviewer_explorer.stores import ResolvedStore
+from tdt_ephyviewer_explorer.viewers.impedance_view import ImpedanceViewer
 
 
 @dataclass
@@ -242,6 +243,7 @@ _VIEWER_CLASSES = {
     "eventlist": EventList,
     "spiketrain": SpikeTrainViewer,
     "epoch": EpochViewer,
+    "impedance": ImpedanceViewer,
 }
 
 _ANALOG_VIEWERS = frozenset({"trace", "timefreq", "spectrogram"})

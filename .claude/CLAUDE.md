@@ -55,6 +55,13 @@ The app is deliberately split so all data logic is unit-testable without Qt:
 4. **Build sources** (`builders.py`): `build_source_for` dispatches by viewer type → `build_analog_source` / `build_event_source` / `build_epoch_source` / `build_spike_source` → in-memory ephyviewer sources. `build_viewer` wraps a source in a viewer class (`_VIEWER_CLASSES`).
 5. **Plan & launch** (`launcher.py`): `plan_views` (Qt-free) resolves a `Session` → ordered `ViewPlan`s, loading each store **once** even with multiple viewers; `launch_block` docks the first viewer and tabifies the rest.
 
+* **Impedance CSVs** (`impedance.py`, Qt-free + `viewers/impedance_view.py`, Qt): a third
+  source category beside TDT stores and processed parquets. `scan_impedance` header-sniffs
+  the block dir's CSVs, `read_impedance` averages rows within each frequency, and
+  `build_grid_source` places channels onto the probe grid from `probe.probe_layout`
+  (`topo_x`/`topo_y`, else inferred from `contact_positions`). Not time-synced: the source
+  has no `t_start`, which is what keeps `MainViewer` from widening the nav range.
+
 ### The metadata browser (`metadata/`)
 A second app (`tdt-metadata`) that browses session metadata without opening viewers, built
 on the same Qt-free-core rule: `listing.py` (StoresListing → gizmos), `notes.py` (Notes.txt
@@ -69,7 +76,7 @@ expand — so don't move the expensive reads into the eager path.
 * **Session** (`session.py`): a pure composition record (`block` + `{store: [attachment dicts]}`), NOT viewer state. Persisted as YAML under `<tank>/tdt_explore/sessions/`. **Raw block dirs are never written to.** Conversion: `spec_to_session` (tree state → Session), `_apply_session` (Session → tree).
   **Exception:** `tdt-metadata` writes `<block>/analysis_notes.txt` — the one sanctioned
   write into a raw block dir, for post-hoc annotations. Nothing else may write there.
-* **Config** (Hydra, `config/`): `config.yaml` composes `viewer/`, `roles/`, `schema/`, `startup/` groups (all `# @package _global_`). `startup` drives one-time launch behavior (`auto_scale`, `trace_color_scheme`) applied by `launcher.apply_startup`. Loaded read-only via `config_schema.load_config`; GUI seeds its tree from it and saves tweaks to sessions. Add hyperparameters/patterns here, never in code.
+* **Config** (Hydra, `config/`): `config.yaml` composes `viewer/`, `roles/`, `schema/`, `startup/`, `processed/`, `impedance/`, `metadata/` groups (all `# @package _global_`). `startup` drives one-time launch behavior (`auto_scale`, `trace_color_scheme`) applied by `launcher.apply_startup`. Loaded read-only via `config_schema.load_config`; GUI seeds its tree from it and saves tweaks to sessions. Add hyperparameters/patterns here, never in code.
 * **Roles/schemas/formatters:** a `RoleRule` may pin a column `schema` (named list in `schema/default.yaml`) and a `formatter` (Hydra `_target_`, instantiated for event labels). Formatters implement `StimFormatter.format_row` (`formatters/base.py`); `GenericFormatter` is the fallback, `IZVoiceFormatter` the example.
 * **Probes** (`probe.py`): optional probeinterface JSON reorders analog channels into contact order (timeseries only); no probe = acquisition order.
 * **delay_ms:** unit-agnostic alignment offset applied to every store type in the source builders.

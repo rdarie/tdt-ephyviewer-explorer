@@ -130,6 +130,26 @@ TDT_EXPLORE_PREPROCESSED_BLOCK="<tank>|<block>" uv run pytest tests/test_process
 
 Note the `|` separator in the env var.
 
+## Impedance CSVs
+
+The rig writes an impedance sidecar per electrode array into the block directory (e.g.
+`spinal.csv`, `EMG.csv`), with one `R<n> (kOhm)` column per acquisition channel. On block
+select these are discovered automatically and appear in the tree as their own groups; use
+**Add impedance CSV…** for files kept elsewhere. Files with a valid header but no data rows
+are skipped.
+
+Point a group's `probe_file` at a probeinterface JSON to lay the contacts out in probe
+topology. The `topo_x`/`topo_y` contact annotations are used when present; otherwise the
+grid is inferred from `contact_positions`. Contact *k* takes the CSV column
+`R{device_channel_indices[k] + 1}`. Without a probe the contacts render as a single row in
+CSV column order. A probe whose contact count differs from the CSV's channel count is an
+error, not a silent truncation.
+
+Rows are averaged within each distinct `FREQUENCY (Hz)`; when a file holds several
+frequencies the viewer shows a selector to switch between them. Colour limits, the
+colormap, and the per-cell numeric annotations are configured under `viewers.impedance`
+and editable per attachment in the tree.
+
 ## Configuration
 
 Viewer defaults, store-role patterns, column schemas, and stim-label formatters are Hydra
