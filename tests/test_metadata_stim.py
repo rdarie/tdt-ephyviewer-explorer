@@ -10,6 +10,7 @@ from tdt_ephyviewer_explorer.metadata.stim import (
     StimSchemaMismatch,
     StimSummary,
     format_channels,
+    format_range,
     read_stim_summaries,
     stim_config_from,
     summarize_stim,
@@ -234,3 +235,24 @@ def test_format_channels_of_nothing_is_empty() -> None:
 def test_format_channels_handles_zero_or_negative_max_listed() -> None:
     assert format_channels((1, 2, 3), 0) == "… (3 ch)"
     assert format_channels((1, 2, 3), -1) == "… (3 ch)"
+
+
+def test_format_range_spans_two_values() -> None:
+    assert format_range(100.0, 800.0, "µA") == "100–800 µA"
+
+
+def test_format_range_collapses_when_the_bounds_match() -> None:
+    assert format_range(200.0, 200.0, "µA") == "200 µA"
+
+
+def test_format_range_prefixes_the_sign_once() -> None:
+    assert format_range(100.0, 800.0, "µA", "-") == "-100–800 µA"
+    assert format_range(100.0, 800.0, "µA", "±") == "±100–800 µA"
+
+
+def test_format_range_strips_a_trailing_zero_decimal() -> None:
+    assert format_range(20.0, 20.0, "Hz") == "20 Hz"
+
+
+def test_format_range_keeps_a_meaningful_decimal() -> None:
+    assert format_range(0.5, 12.5, "Hz") == "0.5–12.5 Hz"

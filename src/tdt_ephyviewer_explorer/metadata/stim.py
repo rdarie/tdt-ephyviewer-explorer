@@ -127,6 +127,32 @@ def format_channels(channels: Sequence[int], max_listed: int) -> str:
     return text
 
 
+def _number(value: float) -> str:
+    """Render one figure to a single decimal, dropping a trailing ``.0``.
+
+    :param value: The figure.
+    :returns: Its rendering, e.g. ``"20"`` or ``"12.5"``.
+    """
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
+def format_range(lo: float, hi: float, unit: str, sign: str = "") -> str:
+    """Render a range, collapsing it when both bounds agree.
+
+    ``sign`` prefixes the whole range rather than each bound: ``-100–800 µA`` reads
+    where ``-800–-100 µA`` does not.
+
+    :param lo: Lower bound.
+    :param hi: Upper bound.
+    :param unit: Unit label appended after a space.
+    :param sign: Polarity marker prefixed to the range, if any.
+    :returns: The rendered range.
+    """
+    low, high = _number(lo), _number(hi)
+    body = low if low == high else f"{low}–{high}"
+    return f"{sign}{body} {unit}".strip()
+
+
 def summarize_stim(
     store: str,
     data: np.ndarray,
