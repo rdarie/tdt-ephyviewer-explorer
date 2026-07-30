@@ -66,8 +66,31 @@ def test_collapsed_row_shows_start_and_duration(qapp, monkeypatch, tmp_path) -> 
     win = _window(monkeypatch)
     win.set_tank(_tank(tmp_path))
     row = win.row_text("Epi_02_Green-260727-154827")
-    assert row[1] == "15:48:30"
-    assert row[2] == "9m08s"
+    assert row[2] == "15:48:30"
+    assert row[3] == "9m08s"
+
+
+def test_rows_carry_a_zero_indexed_counter(qapp, monkeypatch, tmp_path) -> None:
+    win = _window(monkeypatch)
+    win.set_tank(_tank(tmp_path))
+    assert [win.row_text(name)[0] for name in win.block_names()] == ["0", "1"]
+
+
+def test_the_counter_survives_a_row_refresh(qapp, monkeypatch, tmp_path) -> None:
+    # Rows are rebuilt in place when details land; the counter must not be lost.
+    win = _window(monkeypatch)
+    win.set_tank(_tank(tmp_path))
+    win.expand_block("Epi_02_Green-260727-154827")
+    assert win.row_text("Epi_02_Green-260727-154827")[0] == "1"
+
+
+def test_the_picker_does_not_eat_the_windows_height(qapp, monkeypatch, tmp_path) -> None:
+    win = _window(monkeypatch)
+    win.set_tank(_tank(tmp_path))
+    win.resize(900, 900)
+    win.layout().activate()
+
+    assert win.picker.height() <= win.picker.sizeHint().height()
 
 
 def test_expanding_shows_gizmos_and_stim(qapp, monkeypatch, tmp_path) -> None:
@@ -181,7 +204,7 @@ def test_warnings_appear_on_the_row(qapp, monkeypatch, tmp_path) -> None:
     win.expand_block("Epi_02_Green-260727-154827")
     lines = win.detail_lines("Epi_02_Green-260727-154827")
     assert any("23 rows" in ln for ln in lines)
-    assert "⚠" in win.row_text("Epi_02_Green-260727-154827")[0]
+    assert "⚠" in win.row_text("Epi_02_Green-260727-154827")[1]
 
 
 def test_a_worker_failure_is_reported_not_raised(qapp, monkeypatch, tmp_path) -> None:

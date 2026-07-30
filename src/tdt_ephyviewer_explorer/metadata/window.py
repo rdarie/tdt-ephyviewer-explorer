@@ -137,8 +137,14 @@ class MetadataWindow(QtWidgets.QWidget):
         self._picker.tank_changed.connect(self.set_tank)
 
         self._tree = QtWidgets.QTreeWidget()
-        self._tree.setColumnCount(3)
-        self._tree.setHeaderLabels(["Block", "Start", "Duration"])
+        self._tree.setColumnCount(4)
+        self._tree.setHeaderLabels(["#", "Block", "Start", "Duration"])
+        # The counter owns column 0, so the expand arrows and the child indent move
+        # to the block column beside it.
+        self._tree.setTreePosition(1)
+        self._tree.header().setSectionResizeMode(
+            0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+        )
         self._tree.itemExpanded.connect(self._on_item_expanded)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
@@ -156,7 +162,7 @@ class MetadataWindow(QtWidgets.QWidget):
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(self._picker)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)  # all spare height goes to the tree, not the picker
         self.setWindowTitle("tdt-metadata")
 
     @property
@@ -192,6 +198,15 @@ class MetadataWindow(QtWidgets.QWidget):
                 self._cache.put(summary)
                 cached = summary
             self._add_row(cached)
+        self._fit_block_column()
+
+    def _fit_block_column(self) -> None:
+        """Widen the block column to its content, so names are not elided.
+
+        The counter column takes width the block column used to have, and a fixed
+        default is not enough for a full block name plus the indent.
+        """
+        self._tree.resizeColumnToContents(1)
 
     def block_names(self) -> list[str]:
         """The block names currently listed, in tree order."""
@@ -201,13 +216,13 @@ class MetadataWindow(QtWidgets.QWidget):
         ]
 
     def row_text(self, name: str) -> list[str]:
-        """The three collapsed-row columns for one block.
+        """The collapsed-row columns for one block.
 
         :param name: Block name.
-        :returns: ``[block, start, duration]``.
+        :returns: ``[index, block, start, duration]``.
         """
         item = self._items[name]
-        return [item.text(0), item.text(1), item.text(2)]
+        return [item.text(i) for i in range(4)]
 
     def detail_lines(self, name: str) -> list[str]:
         """The expanded child rows for one block, flattened depth-first.
@@ -221,7 +236,7 @@ class MetadataWindow(QtWidgets.QWidget):
             """Append ``node``'s descendants, depth-first."""
             for i in range(node.childCount()):
                 child = node.child(i)
-                text = " ".join(t for t in (child.text(0), child.text(1)) if t)
+                text = " ".join(t for t in (child.text(1), child.text(2)) if t)
                 out.append(text)
                 walk(child)
 
@@ -289,9 +304,10 @@ class MetadataWindow(QtWidgets.QWidget):
             item.setData(0, Qt.UserRole, summary.name)
             self._items[summary.name] = item
         mark = f"{WARNING_MARK} " if summary.warnings else ""
-        item.setText(0, f"{mark}{summary.name}")
-        item.setText(1, format_start(summary.start))
-        item.setText(2, format_duration(summary.duration_s))
+        item.setText(0, str(self._tree.indexOfTopLevelItem(item)))
+        item.setText(1, f"{mark}{summary.name}")
+        item.setText(2, format_start(summary.start))
+        item.setText(3, format_duration(summary.duration_s))
         self._rebuild_children(item, summary)
 
     def _rebuild_children(
@@ -311,24 +327,25 @@ class MetadataWindow(QtWidgets.QWidget):
             if value:
                 self._child(item, label, value)
 
-        gizmos = QtWidgets.QTreeWidgetItem(item, ["Gizmos", ""])
+        gizmos = QtWidgets.QTreeWidgetItem(item, ["", "Gizmos", ""])
         if not summary.details_loaded:
-            QtWidgets.QTreeWidgetItem(gizmos, [LOADING_TEXT, ""])
+            QtWidgets.QTreeWidgetItem(gizmos, ["", LOADING_TEXT, ""])
         for gizmo in summary.gizmos:
             kind = gizmo.kind or ""
             QtWidgets.QTreeWidgetItem(
-                gizmos, [f"{gizmo.object_id}  {kind}".strip(), " ".join(gizmo.stores)]
+                gizmos, ["", f"{gizmo.object_id}  {kind}".strip(), " ".join(gizmo.stores)]
             )
 
         if not summary.details_loaded:
-            stim = QtWidgets.QTreeWidgetItem(item, ["Stimulation", ""])
-            QtWidgets.QTreeWidgetItem(stim, [LOADING_TEXT, ""])
+            stim = QtWidgets.QTreeWidgetItem(item, ["", "Stimulation", ""])
+            QtWidgets.QTreeWidgetItem(stim, ["", LOADING_TEXT, ""])
         elif summary.stim:
-            stim = QtWidgets.QTreeWidgetItem(item, ["Stimulation", ""])
+            stim = QtWidgets.QTreeWidgetItem(item, ["", "Stimulation", ""])
             for entry in summary.stim:
                 QtWidgets.QTreeWidgetItem(
                     stim,
                     [
+                        "",
                         entry.store,
                         f"{entry.n_pulses} pulses · {entry.n_combinations} combinations",
                     ],
@@ -367,23 +384,25 @@ class MetadataWindow(QtWidgets.QWidget):
         :param block: Block name, bound into the button's handler.
         :param analysis: ``True`` for the editable analysis-notes row.
         """
-        row = QtWidgets.QTreeWidgetItem(parent, [label, f"{count} note{'' if count == 1 else 's'}"])
+        row = QtWidgets.QTreeWidgetItem(
+            parent, ["", label, f"{count} note{'' if count == 1 else 's'}"]
+        )
         button = QtWidgets.QPushButton("Expand")
         if analysis:
             button.clicked.connect(lambda: self.open_analysis_notes(block))
         else:
             button.clicked.connect(lambda: self.open_notes(block))
-        self._tree.setItemWidget(row, 2, button)
+        self._tree.setItemWidget(row, 3, button)
 
     @staticmethod
     def _child(parent: QtWidgets.QTreeWidgetItem, label: str, value: str) -> None:
-        """Add a simple two-column child row.
+        """Add a simple label/value child row, leaving the counter column blank.
 
         :param parent: Row to add the child to.
-        :param label: First-column text.
-        :param value: Second-column text.
+        :param label: Block-column text.
+        :param value: Start-column text.
         """
-        QtWidgets.QTreeWidgetItem(parent, [label, value])
+        QtWidgets.QTreeWidgetItem(parent, ["", label, value])
 
     def _ensure_details(self, name: str) -> None:
         """Load a block's tier-1 and tier-2 data once, off the GUI thread.
@@ -416,6 +435,7 @@ class MetadataWindow(QtWidgets.QWidget):
         self._cache.put(summary)
         self._add_row(summary)
         self._items[summary.name].setExpanded(True)
+        self._fit_block_column()  # the new child rows are wider than the collapsed ones
 
     def _on_details_failed(self, name: str, exc: BaseException) -> None:
         """Record a worker failure on the block's row rather than raising.

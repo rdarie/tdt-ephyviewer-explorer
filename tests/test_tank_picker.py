@@ -5,6 +5,8 @@ import pytest
 
 ephyviewer = pytest.importorskip("ephyviewer")
 
+from PySide6 import QtWidgets
+
 from tdt_ephyviewer_explorer.tank_picker import TankPicker
 
 
@@ -19,6 +21,22 @@ def _make_tank(tmp_path: Path) -> Path:
     blk.mkdir(parents=True)
     (blk / "blockA-1.tsq").write_bytes(b"")
     return tank
+
+
+def test_the_picker_does_not_stretch_in_a_tall_layout(qapp, tmp_path) -> None:
+    # A default size policy lets the one-row picker soak up the window's spare
+    # height, pushing everything below it off the bottom.
+    host = QtWidgets.QWidget()
+    picker = TankPicker()
+    below = QtWidgets.QSplitter()  # as in the metadata window: no vertical stretch of its own
+    below.addWidget(QtWidgets.QTreeWidget())
+    layout = QtWidgets.QVBoxLayout(host)
+    layout.addWidget(picker)
+    layout.addWidget(below)
+    host.resize(900, 900)
+    layout.activate()
+
+    assert picker.height() <= picker.sizeHint().height()
 
 
 def test_set_tank_adopts_and_emits(qapp, tmp_path) -> None:

@@ -42,6 +42,11 @@ class TankPicker(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(row)
         layout.addWidget(self._message)
+        # One row of controls: never taller than it needs to be, or it soaks up the
+        # host window's spare height and squeezes whatever sits below it.
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Maximum
+        )
 
     @property
     def tank_dir(self) -> Path | None:
