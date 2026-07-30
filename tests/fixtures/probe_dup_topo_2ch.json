@@ -1,0 +1,22 @@
+{
+  "specification": "probeinterface",
+  "version": "0.3.2",
+  "probes": [
+    {
+      "ndim": 2,
+      "si_units": "um",
+      "annotations": {},
+      "contact_annotations": {
+        "topo_x": [0, 0],
+        "topo_y": [0, 0]
+      },
+      "contact_positions": [[0, 0], [0, 100]],
+      "contact_plane_axes": [[0, 1], [0, 1]],
+      "contact_shapes": ["circle", "circle"],
+      "contact_shape_params": [{"radius": 5}, {"radius": 5}],
+      "device_channel_indices": [0, 1],
+      "contact_ids": ["00", "01"],
+      "shank_ids": ["0", "0"]
+    }
+  ]
+}
