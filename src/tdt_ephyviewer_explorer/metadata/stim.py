@@ -376,7 +376,7 @@ def read_stim_summaries(
     summaries: list[StimSummary] = []
     warnings: list[str] = schema_warnings(columns, settings)
     if headers is None:
-        return summaries, ["stim summary skipped: block index not parsed"]
+        return summaries, warnings + ["stim summary skipped: block index not parsed"]
 
     names = [n for n in headers["stores"].keys() if fnmatchcase(n, settings.store_pattern)]
     for name in names:

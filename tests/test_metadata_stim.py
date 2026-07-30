@@ -203,6 +203,25 @@ def test_read_stim_summaries_without_headers_returns_a_single_warning() -> None:
     assert len(warnings) == 1
 
 
+def test_read_stim_summaries_with_incomplete_schema_and_no_headers_reports_both_warnings() -> None:
+    from omegaconf import OmegaConf
+
+    # Create a config with a schema that's missing ampA (amplitude for voice A)
+    cfg = load_config()
+    cfg_dict = OmegaConf.to_container(cfg, resolve=True)
+    cfg_dict["schemas"]["iz_param_names"] = [
+        c for c in cfg_dict["schemas"]["iz_param_names"] if c != "ampA"
+    ]
+    cfg_incomplete = OmegaConf.create(cfg_dict)
+
+    summaries, warnings = read_stim_summaries(Path("ignored"), cfg_incomplete, headers=None)
+    assert summaries == []
+    # Should have two warnings: one schema warning and one for missing headers
+    assert len(warnings) == 2
+    assert any("ampA" in w for w in warnings), "Missing schema warning for ampA"
+    assert any("skipped" in w for w in warnings), "Missing skipped index warning"
+
+
 def test_read_stim_summaries_only_loads_stores_matching_the_pattern(monkeypatch) -> None:
     from tdt_ephyviewer_explorer.metadata import stim as mod
 
