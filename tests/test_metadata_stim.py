@@ -9,6 +9,7 @@ from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.metadata.stim import (
     StimSchemaMismatch,
     StimSummary,
+    format_channels,
     read_stim_summaries,
     stim_config_from,
     summarize_stim,
@@ -204,3 +205,27 @@ def test_read_stim_summaries_skips_a_mismatched_store_but_keeps_the_rest(monkeyp
     assert [s.store for s in summaries] == ["eS2p"]
     assert summaries[0].n_pulses == 2
     assert any("eS1p" in w for w in warnings)
+
+
+def test_format_channels_collapses_contiguous_runs() -> None:
+    assert format_channels((1, 2, 3, 4, 5, 6, 7, 8, 12, 14), 5) == "1–8,12,14"
+
+
+def test_format_channels_names_the_count_for_a_lone_range() -> None:
+    assert format_channels(tuple(range(1, 33)), 5) == "1–32 (32 ch)"
+
+
+def test_format_channels_truncates_a_long_scattered_list() -> None:
+    assert format_channels((1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33), 5) == "1,3,5,7,9,… (17 ch)"
+
+
+def test_format_channels_leaves_a_single_channel_bare() -> None:
+    assert format_channels((12,), 5) == "12"
+
+
+def test_format_channels_keeps_a_two_long_run_as_two_numbers() -> None:
+    assert format_channels((4, 5), 5) == "4,5"
+
+
+def test_format_channels_of_nothing_is_empty() -> None:
+    assert format_channels((), 5) == ""

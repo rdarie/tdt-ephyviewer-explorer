@@ -84,6 +84,43 @@ def stim_config_from(cfg: Any) -> tuple[StimConfig, list[str]]:
     )
 
 
+def format_channels(channels: Sequence[int], max_listed: int) -> str:
+    """Render a channel set compactly, collapsing runs and capping the width.
+
+    Runs of three or more consecutive channels become ``a–b`` tokens; shorter runs
+    stay as individual numbers. Past ``max_listed`` tokens the list truncates with an
+    ellipsis. A ``(N ch)`` suffix carries the distinct channel count whenever the text
+    alone does not state it -- that is, when the list truncated or rendered as a
+    single range.
+
+    :param channels: Distinct channels, ascending.
+    :param max_listed: Tokens to show before truncating.
+    :returns: The rendered list, or ``""`` for no channels.
+    """
+    if not channels:
+        return ""
+    ordered = sorted(channels)
+    tokens: list[str] = []
+    start = prev = ordered[0]
+    for value in list(ordered[1:]) + [None]:
+        if value is not None and value == prev + 1:
+            prev = value
+            continue
+        if prev - start >= 2:
+            tokens.append(f"{start}–{prev}")
+        else:
+            tokens.extend(str(x) for x in range(start, prev + 1))
+        if value is not None:
+            start = prev = value
+
+    truncated = len(tokens) > max_listed
+    text = ",".join(tokens[:max_listed]) + (",…" if truncated else "")
+    lone_range = len(tokens) == 1 and "–" in tokens[0]
+    if truncated or lone_range:
+        text = f"{text} ({len(ordered)} ch)"
+    return text
+
+
 def summarize_stim(
     store: str,
     data: np.ndarray,
