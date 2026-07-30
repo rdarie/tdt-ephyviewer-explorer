@@ -1,0 +1,2 @@
+TIME (S),FREQUENCY (Hz),TARGET (uA),R1 (kOhm),R2 (kOhm),R3 (kOhm),R4 (kOhm)
+4,1000,5,10.0,20.0,30.0,40.0
