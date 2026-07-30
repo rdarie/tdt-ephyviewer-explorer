@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt, Signal
 from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.metadata.notes import NOTES_FILENAME, AnalysisNotes, read_notes
 from tdt_ephyviewer_explorer.metadata.notes_panel import NotesPanel
+from tdt_ephyviewer_explorer.metadata.stim import format_voice_line, stim_config_from
 from tdt_ephyviewer_explorer.metadata.summary import (
     BlockCache,
     BlockSummary,
@@ -340,9 +341,10 @@ class MetadataWindow(QtWidgets.QWidget):
             stim = QtWidgets.QTreeWidgetItem(item, ["", "Stimulation", ""])
             QtWidgets.QTreeWidgetItem(stim, ["", LOADING_TEXT, ""])
         elif summary.stim:
+            settings, _ = stim_config_from(self._cfg)
             stim = QtWidgets.QTreeWidgetItem(item, ["", "Stimulation", ""])
             for entry in summary.stim:
-                QtWidgets.QTreeWidgetItem(
+                store_row = QtWidgets.QTreeWidgetItem(
                     stim,
                     [
                         "",
@@ -350,6 +352,11 @@ class MetadataWindow(QtWidgets.QWidget):
                         f"{entry.n_pulses} pulses · {entry.n_combinations} combinations",
                     ],
                 )
+                for voice in entry.voices:
+                    QtWidgets.QTreeWidgetItem(
+                        store_row,
+                        ["", f"voice {voice.voice}", format_voice_line(voice, settings)],
+                    )
 
         self._notes_row(item, "Notes", len(summary.notes), summary.name, analysis=False)
         self._notes_row(
