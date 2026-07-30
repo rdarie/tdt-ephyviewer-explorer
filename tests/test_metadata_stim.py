@@ -150,6 +150,11 @@ def test_stim_config_comes_from_the_packaged_config() -> None:
     assert sc.voices == ("A", "B", "C", "D")
     assert sc.chan_prefix == "chan"
     assert sc.count_prefix == "count"
+    assert sc.amp_prefix == "amp"
+    assert sc.per_prefix == "per"
+    assert sc.per_to_hz == 1000.0
+    assert sc.amp_units == "µA"
+    assert sc.max_channels_listed == 5
     assert len(columns) == 24
     assert columns[:3] == ["perA", "countA", "ampA"]
 

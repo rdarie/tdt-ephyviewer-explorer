@@ -36,8 +36,13 @@ class StimConfig:
     :param store_pattern: fnmatch pattern selecting parameter stores.
     :param schema: Name of the column schema in ``schemas``.
     :param voices: Voice suffixes appended to each parameter name.
-    :param chan_prefix: Column prefix whose value marks a voice active when ``> 0``.
+    :param chan_prefix: Column prefix whose value marks a voice wired when ``> 0``.
     :param count_prefix: Column prefix giving pulses per train.
+    :param amp_prefix: Column prefix giving amplitude; ``!= 0`` marks charge delivered.
+    :param per_prefix: Column prefix giving the within-train interval.
+    :param per_to_hz: Numerator of ``freq_Hz = per_to_hz / per``.
+    :param amp_units: Amplitude unit label, for display only.
+    :param max_channels_listed: Channel tokens shown before the list truncates.
     """
 
     store_pattern: str
@@ -45,6 +50,11 @@ class StimConfig:
     voices: tuple[str, ...]
     chan_prefix: str
     count_prefix: str
+    amp_prefix: str
+    per_prefix: str
+    per_to_hz: float
+    amp_units: str
+    max_channels_listed: int
 
 
 def stim_config_from(cfg: Any) -> tuple[StimConfig, list[str]]:
@@ -64,6 +74,11 @@ def stim_config_from(cfg: Any) -> tuple[StimConfig, list[str]]:
             voices=tuple(str(v) for v in node.voices),
             chan_prefix=str(node.chan_prefix),
             count_prefix=str(node.count_prefix),
+            amp_prefix=str(node.amp_prefix),
+            per_prefix=str(node.per_prefix),
+            per_to_hz=float(node.per_to_hz),
+            amp_units=str(node.amp_units),
+            max_channels_listed=int(node.max_channels_listed),
         ),
         columns,
     )
