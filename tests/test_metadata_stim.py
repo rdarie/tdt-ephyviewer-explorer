@@ -13,7 +13,9 @@ from tdt_ephyviewer_explorer.metadata.stim import (
     VoiceSummary,
     format_channels,
     format_range,
+    format_voice_line,
     read_stim_summaries,
+    schema_warnings,
     stim_config_from,
     summarize_stim,
 )
@@ -370,3 +372,41 @@ def test_a_zero_period_event_drops_out_of_the_frequency_range() -> None:
     data[_row("perA")] = [100.0, 0.0, 25.0]
     (voice,) = _summarize(data).voices
     assert (voice.freq_min_hz, voice.freq_max_hz) == (10.0, 40.0)
+
+
+def _voice(**kwargs: Any) -> VoiceSummary:
+    fields: dict[str, Any] = dict(
+        voice="A", channels=(1, 2, 3), amp_min=100.0, amp_max=800.0,
+        amp_sign="-", freq_min_hz=10.0, freq_max_hz=50.0,
+    )
+    fields.update(kwargs)
+    return VoiceSummary(**fields)
+
+
+def test_voice_line_joins_channels_amplitude_and_frequency() -> None:
+    assert format_voice_line(_voice(), SETTINGS) == "ch 1–3 (3 ch) · -100–800 µA · 10–50 Hz"
+
+
+def test_voice_line_drops_the_frequency_clause_when_there_is_none() -> None:
+    line = format_voice_line(_voice(freq_min_hz=None, freq_max_hz=None), SETTINGS)
+    assert line == "ch 1–3 (3 ch) · -100–800 µA"
+
+
+def test_voice_line_drops_the_amplitude_clause_when_the_schema_has_none() -> None:
+    line = format_voice_line(_voice(amp_sign="", amp_min=0.0, amp_max=0.0), SETTINGS)
+    assert line == "ch 1–3 (3 ch) · 10–50 Hz"
+
+
+def test_voice_line_honours_the_channel_cap() -> None:
+    voice = _voice(channels=tuple(range(1, 34, 2)))  # 17 odd channels, 1..33
+    assert format_voice_line(voice, SETTINGS).startswith("ch 1,3,5,7,9,… (17 ch) · ")
+
+
+def test_schema_warnings_name_the_missing_column() -> None:
+    columns = [c for c in COLS if c != "ampA"]
+    (warning,) = schema_warnings(columns, SETTINGS)
+    assert "ampA" in warning
+
+
+def test_a_complete_schema_warns_about_nothing() -> None:
+    assert schema_warnings(COLS, SETTINGS) == []

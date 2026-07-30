@@ -180,6 +180,56 @@ def format_range(lo: float, hi: float, unit: str, sign: str = "") -> str:
     return f"{sign}{body} {unit}".strip()
 
 
+def format_voice_line(voice: VoiceSummary, settings: StimConfig) -> str:
+    """Render one voice's parameters as a single display line.
+
+    Clauses the data could not supply are omitted rather than shown empty.
+
+    :param voice: The per-voice summary.
+    :param settings: Resolved stim settings, for the unit label and channel cap.
+    :returns: e.g. ``"ch 1–8 · -100–800 µA · 10–50 Hz"``.
+    """
+    parts: list[str] = []
+    if voice.channels:
+        parts.append(f"ch {format_channels(voice.channels, settings.max_channels_listed)}")
+    if voice.amp_sign:
+        parts.append(
+            format_range(voice.amp_min, voice.amp_max, settings.amp_units, voice.amp_sign)
+        )
+    if voice.freq_min_hz is not None and voice.freq_max_hz is not None:
+        parts.append(format_range(voice.freq_min_hz, voice.freq_max_hz, "Hz"))
+    return " · ".join(parts)
+
+
+def schema_warnings(column_names: Sequence[str], settings: StimConfig) -> list[str]:
+    """Report voices whose schema cannot supply a parameter this summary reports.
+
+    The schema is the same for every store in a block, so this is checked once rather
+    than per store. A missing amplitude column also weakens the activity test for that
+    voice, which is why it is worth saying out loud.
+
+    :param column_names: The named schema's column order.
+    :param settings: Resolved stim settings.
+    :returns: One warning per missing column, empty when the schema is complete.
+    """
+    present = set(column_names)
+    out: list[str] = []
+    for voice in settings.voices:
+        if f"{settings.chan_prefix}{voice}" not in present:
+            continue
+        for prefix, reported in (
+            (settings.amp_prefix, "amplitude"),
+            (settings.per_prefix, "frequency"),
+        ):
+            column = f"{prefix}{voice}"
+            if column not in present:
+                out.append(
+                    f"schema {settings.schema!r} has no {column}: "
+                    f"voice {voice} reports no {reported}"
+                )
+    return out
+
+
 def _voice_mask(
     data: np.ndarray, index: dict[str, int], voice: str, settings: StimConfig
 ) -> np.ndarray:
@@ -327,7 +377,7 @@ def read_stim_summaries(
     """
     settings, columns = stim_config_from(cfg)
     summaries: list[StimSummary] = []
-    warnings: list[str] = []
+    warnings: list[str] = schema_warnings(columns, settings)
     if headers is None:
         return summaries, ["stim summary skipped: block index not parsed"]
 
