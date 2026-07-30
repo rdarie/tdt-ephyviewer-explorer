@@ -46,14 +46,14 @@ One grandchild row per active voice, under the existing store row:
 ```
 Stimulation
   eS1p        980 pulses · 3 combinations
-    voice A   ch 1–8 · 100–800 µA · 10–50 Hz
-    voice B   ch 12 · 200 µA · 20 Hz
+    voice A   ch 1–8 · −100–800 µA · 10–50 Hz
+    voice B   ch 12 · −200 µA · 20 Hz
 ```
 
 Voices appear in the order given by `metadata.stim.voices` (A, B, C, D), not in the order
 they happen to fire. Inactive voices produce no row. A store with no active voice keeps
 its existing `0 pulses · 0 combinations` line and gains nothing. Rows use the tree's existing three
-columns as `["", "voice A", "ch 1–8 · 100–800 µA · 10–50 Hz"]`, matching the gizmo rows
+columns as `["", "voice A", "ch 1–8 · −100–800 µA · 10–50 Hz"]`, matching the gizmo rows
 above them.
 
 ## Activity mask
@@ -61,11 +61,22 @@ above them.
 One definition, used for every figure this feature reports and for the two it already
 reported:
 
-> Voice `v` is **on** at event `e` when `chan{v}[e] > 0` **and** `amp{v}[e] > 0`.
+> Voice `v` is **on** at event `e` when `chan{v}[e] > 0` **and** `amp{v}[e] != 0`.
 > Voice `v` is **active** when it is on for at least one event.
 
 `chan == 0` is Synapse's dummy value for "no stimulation"; `amp == 0` is a voice that is
 configured but delivering nothing. Neither is stimulation.
+
+The amplitude test is `!= 0`, **not** `> 0`: amplitudes are stored negative for cathodic
+pulses (`ampA = -100.0` throughout the existing fixtures), so `> 0` would match nothing
+in real data and silently report every block as unstimulated.
+
+**Accepted consequence — the return electrode is dropped.** In the reference block
+documented by `test_active_voice_with_zero_count_never_contributes_pulses`, voice B is the
+anode: `chanB` sweeps 0,5,6,7 while `countB` and `ampB` stay 0. B is inactive under this
+mask, so that block reports 1 combination where it previously reported 4, and B's channel
+sweep does not appear. This is the chosen behavior, not an oversight: a voice delivering
+no charge is not stimulation, and the alternative was a second class of half-active voice.
 
 Consequences, all intended:
 
@@ -92,18 +103,21 @@ class VoiceSummary:
 
     :param voice: Voice suffix, e.g. ``"A"``.
     :param channels: Distinct channels stimulated, ascending.
-    :param amp_min: Smallest amplitude delivered, in ``amp_units``.
-    :param amp_max: Largest amplitude delivered, in ``amp_units``.
-    :param freq_min_hz: Lowest within-train pulse frequency, in Hz.
-    :param freq_max_hz: Highest within-train pulse frequency, in Hz.
+    :param amp_min: Smallest amplitude *magnitude* delivered, in ``amp_units``.
+    :param amp_max: Largest amplitude magnitude delivered, in ``amp_units``.
+    :param amp_sign: ``"-"`` if every delivered amplitude was negative, ``"+"`` if
+        every one was positive, ``"±"`` if both polarities appear.
+    :param freq_min_hz: Lowest within-train pulse frequency, in Hz, or ``None``.
+    :param freq_max_hz: Highest within-train pulse frequency, in Hz, or ``None``.
     """
 
     voice: str
     channels: tuple[int, ...]
     amp_min: float
     amp_max: float
-    freq_min_hz: float
-    freq_max_hz: float
+    amp_sign: str
+    freq_min_hz: float | None
+    freq_max_hz: float | None
 
 
 @dataclass(frozen=True)
@@ -147,9 +161,14 @@ stimulated.
 | `(1,3,5,7,9,11,13,15,17)` | `1,3,5,7,9,… (17 ch)` |
 | `(12,)` | `12` |
 
-**`format_range(lo, hi, unit)`** — `"200 µA"` when `lo == hi`, `"100–800 µA"` otherwise.
-Frequencies render to one decimal with a trailing `.0` stripped, so 20 Hz is `20 Hz`, not
-`20.0 Hz`.
+**`format_range(lo, hi, unit, sign="")`** — `"200 µA"` when `lo == hi`, `"100–800 µA"`
+otherwise, with `sign` prefixed once to the whole range. Values render to one decimal with
+a trailing `.0` stripped, so 20 Hz is `20 Hz`, not `20.0 Hz`.
+
+Amplitudes pass their magnitudes and `amp_sign`, giving `−100–800 µA` for the usual
+cathodic case, `±100–800 µA` when both polarities appear, and `100–800 µA` for anodic.
+Prefixing once beats a signed range: `−800–−100 µA` has two meanings of `−` in seven
+characters.
 
 The assembled value cell joins the present clauses with `" · "`, skipping any clause the
 data could not supply.
@@ -167,8 +186,8 @@ data could not supply.
     per_prefix: per
     # freq_Hz = per_to_hz / per{V}. per is in milliseconds.
     per_to_hz: 1000.0
-    # Amplitude unit label, display only.
-    amp_units: "uA"
+    # Amplitude unit label. Display only; no conversion is applied.
+    amp_units: "µA"
     # Channels listed per voice before the list truncates to a count.
     max_channels_listed: 5
 ```
@@ -186,17 +205,26 @@ data could not supply.
 
 ## Testing
 
-`tests/test_stim.py` extends its existing fixtures:
+`tests/test_metadata_stim.py` extends its existing fixtures:
 
 - A voice with `chan > 0` but `amp == 0` throughout is dropped, and both the pulse and
   combination counts fall accordingly.
 - Per-voice ranges cover on-events only — an off event carrying a stray low amplitude
   does not lower `amp_min`.
+- Amplitude sign: all-negative yields `"-"`, mixed yields `"±"`, all-positive yields `"+"`.
 - Frequency conversion: `per = 100` ms yields 10 Hz; a `per` of 0 is excluded; an
-  all-non-positive `per` yields no frequency clause.
+  all-non-positive `per` yields `None` for both bounds and no frequency clause.
 - Single-valued ranges render without a dash.
 - `format_channels` over the four table cases above.
 - A schema missing `ampA` warns and still lists voice A with its channels and frequency.
+
+**Existing fixtures need amplitudes.** Most current tests set `chan` and `count` but leave
+`amp` at zero, which the new mask reads as inactive. Each such fixture gains an explicit
+`amp` so it keeps describing a stimulating voice; the two tests that assert on the old
+`chan`-only behavior (`test_active_voice_with_zero_count_never_contributes_pulses` and
+`test_idle_voice_with_nonzero_params_does_not_inflate_combinations`) are rewritten against
+the new rule. This is expected fallout of tightening the definition, not incidental
+breakage — the updated expectations are the record of the change.
 
 The suite stays Qt-free and headless.
 
@@ -207,7 +235,7 @@ The suite stays Qt-free and headless.
 | `src/tdt_ephyviewer_explorer/metadata/stim.py` | `VoiceSummary`, tightened mask, per-voice reduction, the two formatters, `StimConfig` fields |
 | `src/tdt_ephyviewer_explorer/config/metadata/default.yaml` | The five new keys |
 | `src/tdt_ephyviewer_explorer/metadata/window.py` | Voice rows under each store row |
-| `tests/test_stim.py` | The cases above |
+| `tests/test_metadata_stim.py` | The cases above, plus amplitudes added to the existing fixtures |
 
 `summary.py` needs no change: `StimSummary` grows a field, and it only ever passes the
 summaries through.
