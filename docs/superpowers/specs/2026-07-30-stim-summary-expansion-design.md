@@ -83,7 +83,12 @@ Consequences, all intended:
 - **Per-voice ranges** are computed over that voice's on-events only. Including off
   events would pin every `amp_min` and `freq_min` to 0.
 - **Combinations** consider the columns of active voices, over events where at least one
-  voice is on. A voice held at 0 µA no longer contributes its varying columns.
+  voice is on, with **each voice's columns canonicalised to zero on its own off events**.
+  A voice held at 0 µA no longer contributes its varying columns, and neither does a voice
+  that is merely idle at that moment: a `chan` value churning while the voice delivers
+  nothing is not a setting that was used. Without this, the headline count can exceed what
+  the voice rows below it can account for — two voices firing at different times, with one
+  sweeping its channel while off, is enough to produce a combination that never occurred.
 - **Pulses** stay the per-event **maximum** of `count` across on voices, summed over
   events — voices fire concurrently, so a 3-pulse train on two voices is three pulses in
   time. Only the mask changes: events where a voice is off, by the stricter test, no
@@ -105,7 +110,8 @@ class VoiceSummary:
     :param channels: Distinct channels stimulated, ascending.
     :param amp_min: Smallest amplitude *magnitude* delivered, in ``amp_units``.
     :param amp_max: Largest amplitude magnitude delivered, in ``amp_units``.
-    :param amp_sign: ``"-"`` if every delivered amplitude was negative, ``"+"`` if
+    :param amp_sign: ``"−"`` (U+2212 MINUS SIGN, wider than the en dash that separates
+        the bounds) if every delivered amplitude was negative, ``"+"`` if
         every one was positive, ``"±"`` if both polarities appear.
     :param freq_min_hz: Lowest within-train pulse frequency, in Hz, or ``None``.
     :param freq_max_hz: Highest within-train pulse frequency, in Hz, or ``None``.
@@ -178,7 +184,7 @@ data could not supply.
 `config/metadata/default.yaml`, under `metadata.stim`:
 
 ```yaml
-    # Column prefixes: chan{V} > 0 and amp{V} > 0 mark a voice active at an event;
+    # Column prefixes: chan{V} > 0 and amp{V} != 0 mark a voice active at an event;
     # count{V} is pulses per train, per{V} the within-train interval.
     chan_prefix: chan
     count_prefix: count
