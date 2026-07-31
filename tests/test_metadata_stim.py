@@ -182,6 +182,21 @@ def test_an_active_voice_with_zero_count_contributes_combinations_not_pulses() -
     assert summary.n_combinations == 4
 
 
+def test_combinations_ignore_a_voice_churning_while_it_is_off() -> None:
+    # A is on for events 0,1; B is on for events 2,3. chanB churns 7->8 while B is
+    # off, which must not invent a third combination -- only two settings were ever
+    # actually delivered: (A on, B off) and (A off, B on).
+    data = _blank(4)
+    data[_row("chanA")] = [1, 1, 0, 0]
+    data[_row("countA")] = 1.0
+    data[_row("ampA")] = -100.0
+    data[_row("chanB")] = [7, 8, 9, 9]
+    data[_row("ampB")] = [0.0, 0.0, -50.0, -50.0]
+    data[_row("countB")] = 1.0
+    summary = _summarize(data)
+    assert (summary.n_pulses, summary.n_combinations) == (4, 2)
+
+
 def test_stim_config_comes_from_the_packaged_config() -> None:
     sc, columns = stim_config_from(load_config())
     assert sc.store_pattern == "eS?p"
@@ -321,7 +336,7 @@ def test_voice_rows_carry_channels_amplitude_and_frequency() -> None:
     data[_row("ampA")] = [-100.0, -400.0, -800.0]
     data[_row("perA")] = [100.0, 50.0, 20.0]  # ms -> 10, 20, 50 Hz
     (voice,) = _summarize(data).voices
-    assert voice == VoiceSummary("A", (1, 2, 3), 100.0, 800.0, "-", 10.0, 50.0)
+    assert voice == VoiceSummary("A", (1, 2, 3), 100.0, 800.0, "−", 10.0, 50.0)
 
 
 def test_only_active_voices_get_a_row() -> None:
@@ -396,19 +411,19 @@ def test_a_zero_period_event_drops_out_of_the_frequency_range() -> None:
 def _voice(**kwargs: Any) -> VoiceSummary:
     fields: dict[str, Any] = dict(
         voice="A", channels=(1, 3, 5), amp_min=100.0, amp_max=800.0,
-        amp_sign="-", freq_min_hz=10.0, freq_max_hz=50.0,
+        amp_sign="−", freq_min_hz=10.0, freq_max_hz=50.0,
     )
     fields.update(kwargs)
     return VoiceSummary(**fields)
 
 
 def test_voice_line_joins_channels_amplitude_and_frequency() -> None:
-    assert format_voice_line(_voice(), SETTINGS) == "ch 1,3,5 · -100–800 µA · 10–50 Hz"
+    assert format_voice_line(_voice(), SETTINGS) == "ch 1,3,5 · −100–800 µA · 10–50 Hz"
 
 
 def test_voice_line_drops_the_frequency_clause_when_there_is_none() -> None:
     line = format_voice_line(_voice(freq_min_hz=None, freq_max_hz=None), SETTINGS)
-    assert line == "ch 1,3,5 · -100–800 µA"
+    assert line == "ch 1,3,5 · −100–800 µA"
 
 
 def test_voice_line_drops_the_amplitude_clause_when_the_schema_has_none() -> None:
@@ -429,3 +444,27 @@ def test_schema_warnings_name_the_missing_column() -> None:
 
 def test_a_complete_schema_warns_about_nothing() -> None:
     assert schema_warnings(COLS, SETTINGS) == []
+
+
+def test_schema_warnings_name_a_missing_count_column() -> None:
+    columns = [c for c in COLS if c != "countA"]
+    (warning,) = schema_warnings(columns, SETTINGS)
+    assert "countA" in warning
+
+
+def test_a_schema_missing_amplitude_still_reports_channels_and_frequency() -> None:
+    # Without ampA, _voice_mask degrades to the channel test alone, and
+    # _summarize_voice cannot report amplitude bounds.
+    columns = [c for c in COLS if c != "ampA"]
+    data = np.zeros((len(columns), 3), dtype=float)
+    reduced_index = {name: i for i, name in enumerate(columns)}
+    data[reduced_index["chanA"]] = 1.0
+    data[reduced_index["countA"]] = 1.0
+    data[reduced_index["perA"]] = [100.0, 50.0, 20.0]  # ms -> 10, 20, 50 Hz
+    summary = summarize_stim("eS1p", data, columns, SETTINGS)
+    (voice,) = summary.voices
+    assert voice.voice == "A"
+    assert voice.channels == (1,)
+    assert voice.amp_sign == ""
+    assert (voice.amp_min, voice.amp_max) == (0.0, 0.0)
+    assert (voice.freq_min_hz, voice.freq_max_hz) == (10.0, 50.0)

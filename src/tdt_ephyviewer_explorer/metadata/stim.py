@@ -23,9 +23,9 @@ class VoiceSummary:
     :param channels: Distinct channels stimulated, ascending.
     :param amp_min: Smallest amplitude *magnitude* delivered, in the configured units.
     :param amp_max: Largest amplitude magnitude delivered.
-    :param amp_sign: ``"-"`` if every delivered amplitude was negative, ``"+"`` if
-        every one was positive, ``"±"`` if both polarities appear, ``""`` if the
-        schema names no amplitude column for this voice.
+    :param amp_sign: ``"−"`` (U+2212 minus sign) if every delivered amplitude was
+        negative, ``"+"`` if every one was positive, ``"±"`` if both polarities
+        appear, ``""`` if the schema names no amplitude column for this voice.
     :param freq_min_hz: Lowest within-train pulse frequency in Hz, or ``None`` when no
         event carried a positive period.
     :param freq_max_hz: Highest within-train pulse frequency in Hz, or ``None``.
@@ -184,7 +184,7 @@ def format_voice_line(voice: VoiceSummary, settings: StimConfig) -> str:
 
     :param voice: The per-voice summary.
     :param settings: Resolved stim settings, for the unit label and channel cap.
-    :returns: e.g. ``"ch 1–8 · -100–800 µA · 10–50 Hz"``.
+    :returns: e.g. ``"ch 1–8 · −100–800 µA · 10–50 Hz"``.
     """
     parts: list[str] = []
     if voice.channels:
@@ -203,7 +203,8 @@ def schema_warnings(column_names: Sequence[str], settings: StimConfig) -> list[s
 
     The schema is the same for every store in a block, so this is checked once rather
     than per store. A missing amplitude column also weakens the activity test for that
-    voice, which is why it is worth saying out loud.
+    voice, and a missing count column makes :func:`summarize_stim` silently skip that
+    voice's pulse contribution -- both are worth saying out loud.
 
     :param column_names: The named schema's column order.
     :param settings: Resolved stim settings.
@@ -217,6 +218,7 @@ def schema_warnings(column_names: Sequence[str], settings: StimConfig) -> list[s
         for prefix, reported in (
             (settings.amp_prefix, "amplitude"),
             (settings.per_prefix, "frequency"),
+            (settings.count_prefix, "pulses"),
         ):
             column = f"{prefix}{voice}"
             if column not in present:
@@ -283,7 +285,7 @@ def _summarize_voice(
             magnitudes = np.abs(amps)
             amp_min, amp_max = float(magnitudes.min()), float(magnitudes.max())
             negative, positive = bool((amps < 0).any()), bool((amps > 0).any())
-            amp_sign = "±" if negative and positive else ("-" if negative else "+")
+            amp_sign = "±" if negative and positive else ("−" if negative else "+")
 
     freq_min: float | None = None
     freq_max: float | None = None
@@ -310,6 +312,11 @@ def summarize_stim(
     at least one event. Only active voices' columns take part, so an idle voice whose
     other parameters happen to vary cannot inflate the combination count, and a return
     electrode held at zero amplitude is not counted as stimulation.
+
+    Before counting combinations, each active voice's own columns are canonicalised to
+    zero on that voice's own off-events (a copy, not a mutation of ``data``): otherwise
+    a value that churns while the voice is idle -- delivering nothing -- would be read
+    as part of a combination that never actually occurred.
 
     Pulses per event are the **maximum** ``count`` across that event's on voices, not
     the sum: voices fire concurrently, so a 3-pulse train on two voices is three pulses
@@ -343,8 +350,15 @@ def summarize_stim(
     any_on = np.zeros(n_events, dtype=bool)
     for on in masks.values():
         any_on |= on
+
+    combo_data = data.copy()
+    for voice, on in masks.items():
+        voice_rows = [i for name, i in index.items() if name.endswith(voice)]
+        off_events = np.flatnonzero(~on)
+        if off_events.size:
+            combo_data[np.ix_(voice_rows, off_events)] = 0.0
     combo_rows = [i for name, i in index.items() if any(name.endswith(v) for v in masks)]
-    block = data[np.ix_(combo_rows, np.flatnonzero(any_on))]
+    block = combo_data[np.ix_(combo_rows, np.flatnonzero(any_on))]
     n_combinations = int(np.unique(block.T, axis=0).shape[0])
 
     per_event = np.zeros(n_events, dtype=float)
