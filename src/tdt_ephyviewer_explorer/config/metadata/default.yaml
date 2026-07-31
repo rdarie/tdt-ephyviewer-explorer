@@ -11,6 +11,16 @@ metadata:
     schema: iz_param_names
     # Voice suffixes appended to each parameter name (perA, countA, …).
     voices: [A, B, C, D]
-    # Column prefixes: chan{V} > 0 marks a voice active; count{V} is pulses per train.
+    # Column prefixes: a voice is stimulating at an event when chan{V} > 0 and
+    # amp{V} != 0 (amplitudes are stored negative for cathodic pulses). count{V} is
+    # pulses per train, per{V} the within-train interval.
     chan_prefix: chan
     count_prefix: count
+    amp_prefix: amp
+    per_prefix: per
+    # freq_Hz = per_to_hz / per{V}. per is in milliseconds.
+    per_to_hz: 1000.0
+    # Amplitude unit label. Display only; no conversion is applied.
+    amp_units: "µA"
+    # Channel tokens listed per voice before the list truncates to a count.
+    max_channels_listed: 5

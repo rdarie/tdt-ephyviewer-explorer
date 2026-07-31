@@ -9,7 +9,7 @@ import pytest
 ephyviewer = pytest.importorskip("ephyviewer")
 
 from tdt_ephyviewer_explorer.config_schema import load_config
-from tdt_ephyviewer_explorer.metadata.stim import StimSummary
+from tdt_ephyviewer_explorer.metadata.stim import StimSummary, VoiceSummary
 from tdt_ephyviewer_explorer.metadata.window import MetadataWindow, run_in_pool
 
 FIXTURES = Path(__file__).parent / "fixtures" / "metadata"
@@ -320,3 +320,32 @@ def test_run_in_pool_delivers_a_failure(qapp) -> None:
 def _boom() -> None:
     """Work that always fails, for the failure path."""
     raise OSError("corrupt tsq")
+
+
+def test_voice_rows_appear_under_their_store(qapp, monkeypatch, tmp_path) -> None:
+    stim = (
+        StimSummary(
+            "eS1p", 15561, 1881,
+            (
+                VoiceSummary("A", (1, 2, 3, 4, 5, 6, 7, 8), 100.0, 800.0, "−", 10.0, 50.0),
+                VoiceSummary("B", (12,), 200.0, 200.0, "−", 20.0, 20.0),
+            ),
+        ),
+    )
+    win = _window(monkeypatch, stim=stim)
+    win.set_tank(_tank(tmp_path))
+    win.expand_block("Epi_02_Green-260727-154827")
+    lines = win.detail_lines("Epi_02_Green-260727-154827")
+    assert "voice A ch 1–8 · −100–800 µA · 10–50 Hz" in lines
+    assert "voice B ch 12 · −200 µA · 20 Hz" in lines
+
+
+def test_a_store_with_no_active_voice_shows_only_its_headline(
+    qapp, monkeypatch, tmp_path
+) -> None:
+    win = _window(monkeypatch, stim=(StimSummary("eS1p", 0, 0),))
+    win.set_tank(_tank(tmp_path))
+    win.expand_block("Epi_02_Green-260727-154827")
+    lines = win.detail_lines("Epi_02_Green-260727-154827")
+    assert "eS1p 0 pulses · 0 combinations" in lines
+    assert not any(ln.startswith("voice ") for ln in lines)

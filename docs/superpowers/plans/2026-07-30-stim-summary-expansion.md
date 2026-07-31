@@ -166,12 +166,13 @@ def test_format_channels_collapses_contiguous_runs() -> None:
     assert format_channels((1, 2, 3, 4, 5, 6, 7, 8, 12, 14), 5) == "1–8,12,14"
 
 
-def test_format_channels_names_the_count_for_a_lone_range() -> None:
-    assert format_channels(tuple(range(1, 33)), 5) == "1–32 (32 ch)"
+def test_format_channels_leaves_a_lone_range_bare() -> None:
+    assert format_channels(tuple(range(1, 33)), 5) == "1–32"
 
 
 def test_format_channels_truncates_a_long_scattered_list() -> None:
-    assert format_channels((1, 3, 5, 7, 9, 11, 13, 15, 17), 5) == "1,3,5,7,9,… (17 ch)"
+    channels = tuple(range(1, 34, 2))  # 17 odd channels, 1..33
+    assert format_channels(channels, 5) == "1,3,5,7,9,… (17 ch)"
 
 
 def test_format_channels_leaves_a_single_channel_bare() -> None:
@@ -227,8 +228,7 @@ def format_channels(channels: Sequence[int], max_listed: int) -> str:
 
     truncated = len(tokens) > max_listed
     text = ",".join(tokens[:max_listed]) + (",…" if truncated else "")
-    lone_range = len(tokens) == 1 and "–" in tokens[0]
-    if truncated or lone_range:
+    if truncated:
         text = f"{text} ({len(ordered)} ch)"
     return text
 ```
@@ -864,7 +864,7 @@ Append to `tests/test_metadata_stim.py`, adding both names to the import block:
 ```python
 def _voice(**kwargs: Any) -> VoiceSummary:
     fields: dict[str, Any] = dict(
-        voice="A", channels=(1, 2, 3), amp_min=100.0, amp_max=800.0,
+        voice="A", channels=(1, 3, 5), amp_min=100.0, amp_max=800.0,
         amp_sign="-", freq_min_hz=10.0, freq_max_hz=50.0,
     )
     fields.update(kwargs)
@@ -872,21 +872,21 @@ def _voice(**kwargs: Any) -> VoiceSummary:
 
 
 def test_voice_line_joins_channels_amplitude_and_frequency() -> None:
-    assert format_voice_line(_voice(), SETTINGS) == "ch 1,2,3 · -100–800 µA · 10–50 Hz"
+    assert format_voice_line(_voice(), SETTINGS) == "ch 1,3,5 · -100–800 µA · 10–50 Hz"
 
 
 def test_voice_line_drops_the_frequency_clause_when_there_is_none() -> None:
     line = format_voice_line(_voice(freq_min_hz=None, freq_max_hz=None), SETTINGS)
-    assert line == "ch 1,2,3 · -100–800 µA"
+    assert line == "ch 1,3,5 · -100–800 µA"
 
 
 def test_voice_line_drops_the_amplitude_clause_when_the_schema_has_none() -> None:
     line = format_voice_line(_voice(amp_sign="", amp_min=0.0, amp_max=0.0), SETTINGS)
-    assert line == "ch 1,2,3 · 10–50 Hz"
+    assert line == "ch 1,3,5 · 10–50 Hz"
 
 
 def test_voice_line_honours_the_channel_cap() -> None:
-    voice = _voice(channels=(1, 3, 5, 7, 9, 11, 13, 15, 17))
+    voice = _voice(channels=tuple(range(1, 34, 2)))  # 17 odd channels, 1..33
     assert format_voice_line(voice, SETTINGS).startswith("ch 1,3,5,7,9,… (17 ch) · ")
 
 
