@@ -25,7 +25,7 @@ class ImpedanceViewer(ViewerBase):
         {"name": "vmin", "type": "float", "value": 0.0},
         {"name": "vmax", "type": "float", "value": 200.0},
         {"name": "annotate", "type": "bool", "value": True},
-        {"name": "annotation_format", "type": "str", "value": "{:.0f}"},
+        {"name": "annotation_format", "type": "str", "value": "R{channel}\n{impedance:.0f}"},
         {"name": "cmap", "type": "str", "value": "viridis"},
     ]
 
@@ -130,18 +130,23 @@ class ImpedanceViewer(ViewerBase):
         self._texts.clear()
         if not self.params["annotate"]:
             return
+        from tdt_ephyviewer_explorer.impedance import format_cell
+
         template = str(self.params["annotation_format"])
         for row in range(grid.shape[0]):
             for col in range(grid.shape[1]):
                 value = grid[row, col]
                 if np.isnan(value):
                     continue
+                fields = self.source.fields[row, col] or {}
+                text = format_cell(template, {**fields, "impedance": float(value)})
+                if not text.strip():
+                    continue
                 fraction = float(np.clip((value - vmin) / (vmax - vmin), 0.0, 1.0))
                 red, green, blue = colormap.map(fraction, mode="float")[:3]
                 luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
                 item = pg.TextItem(
-                    template.format(value), color="k" if luminance > 0.5 else "w",
-                    anchor=(0.5, 0.5),
+                    text, color="k" if luminance > 0.5 else "w", anchor=(0.5, 0.5)
                 )
                 item.setPos(col + 0.5, row + 0.5)
                 self.plot.addItem(item)
