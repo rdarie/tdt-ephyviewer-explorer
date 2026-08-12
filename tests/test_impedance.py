@@ -126,7 +126,9 @@ def test_build_grid_source_no_probe_is_a_strip(cfg) -> None:
     source = build_grid_source(data, probe=None, layout=None)
     assert source.grids[0].shape == (1, 4)
     assert list(source.grids[0][0]) == [10.0, 20.0, 30.0, 40.0]
-    assert list(source.labels[0]) == ["R1", "R2", "R3", "R4"]
+    assert [source.fields[0, c]["name"] for c in range(4)] == ["R1", "R2", "R3", "R4"]
+    assert source.fields[0, 0] == {"channel": 1, "units": "kOhm", "name": "R1"}
+    assert "contact_id" not in source.fields[0, 0]  # no probe -> no probe keys
 
 
 def test_build_grid_source_maps_via_device_channel_indices(cfg) -> None:
@@ -137,7 +139,11 @@ def test_build_grid_source_maps_via_device_channel_indices(cfg) -> None:
     source = build_grid_source(data, load_probe(PROBE_4CH), probe_layout(PROBE_4CH))
     assert source.grids[0].shape == (4, 1)
     assert [row[0] for row in source.grids[0]] == [40.0, 30.0, 20.0, 10.0]
-    assert [row[0] for row in source.labels] == ["A 00", "B 01", "C 02", "D 03"]
+    assert [source.fields[r, 0]["name"] for r in range(4)] == ["A 00", "B 01", "C 02", "D 03"]
+    # contact 0 -> acquisition channel order[0]+1 = 4, region "A", id "00"
+    assert source.fields[0, 0] == {
+        "channel": 4, "units": "kOhm", "name": "A 00", "contact_id": "00", "region": "A",
+    }
 
 
 def test_build_grid_source_uses_topo_grid(cfg) -> None:
@@ -147,6 +153,15 @@ def test_build_grid_source_uses_topo_grid(cfg) -> None:
     source = build_grid_source(data, load_probe(PROBE_TOPO), probe_layout(PROBE_TOPO))
     assert source.grids[0].shape == (2, 2)
     assert source.grids[0].tolist() == [[30.0, 40.0], [10.0, 20.0]]
+
+
+def test_build_grid_source_fields_align_with_grid(cfg) -> None:
+    data = read_impedance(FIXTURES / "impedance_1row.csv", cfg)
+    source = build_grid_source(data, load_probe(PROBE_TOPO), probe_layout(PROBE_TOPO))
+    assert source.fields.shape == source.grids[0].shape == (2, 2)
+    # topo places contact with region "C" (id "02", channel 2) at grid (row1,col1)
+    assert source.fields[1, 1]["region"] == "C"
+    assert source.fields[1, 1]["channel"] == 2
 
 
 def test_build_grid_source_keeps_one_grid_per_frequency(cfg) -> None:

@@ -218,8 +218,10 @@ class ImpedanceGridSource:
         frequency column.
     :param grids: ``(n_rows, n_cols)`` arrays, NaN where no contact occupies the
         cell. Row ``0`` renders at the top.
-    :param labels: ``(n_rows, n_cols)`` object array of per-cell contact labels,
-        ``""`` for empty cells.
+    :param fields: ``(n_rows, n_cols)`` object array of per-cell field dicts for
+        annotation templating (``channel``/``units``/``name`` always, plus
+        ``contact_id``/``region`` when a probe was supplied); ``None`` for empty
+        cells.
     :param metadata: Averaged metadata columns, one dict per grid.
     """
 
@@ -227,7 +229,7 @@ class ImpedanceGridSource:
     units: str
     frequencies: tuple[float | None, ...]
     grids: tuple[np.ndarray, ...]
-    labels: np.ndarray
+    fields: np.ndarray
     metadata: tuple[dict[str, float], ...]
 
 
@@ -273,9 +275,15 @@ def build_grid_source(
             f"channels are {sorted(index_of)}"
         )
 
-    cell_labels = np.full((n_rows, n_cols), "", dtype=object)
+    cell_fields = np.full((n_rows, n_cols), None, dtype=object)
     for k in range(len(wanted)):
-        cell_labels[row[k], col[k]] = labels[k]
+        cell = {"channel": int(wanted[k]), "units": data.units, "name": labels[k]}
+        if probe is not None:
+            if probe.contact_ids is not None:
+                cell["contact_id"] = probe.contact_ids[k]
+            if probe.regions is not None:
+                cell["region"] = probe.regions[k]
+        cell_fields[row[k], col[k]] = cell
     grids = []
     for group in data.groups:
         grid = np.full((n_rows, n_cols), np.nan)
@@ -288,7 +296,7 @@ def build_grid_source(
         units=data.units,
         frequencies=tuple(g.frequency for g in data.groups),
         grids=tuple(grids),
-        labels=cell_labels,
+        fields=cell_fields,
         metadata=tuple(g.metadata for g in data.groups),
     )
 
