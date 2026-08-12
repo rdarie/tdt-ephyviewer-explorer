@@ -16,10 +16,16 @@ class ProbeMap:
     :param order: For displayed channel ``k``, the raw acquisition channel index
         (``device_channel_indices`` in contact order).
     :param names: Display name per contact-ordered channel.
+    :param contact_ids: probeinterface ``contact_id`` per channel, or ``None``
+        when the file omits them.
+    :param regions: ``brain_region`` annotation per channel, or ``None`` when
+        absent.
     """
 
     order: np.ndarray
     names: list[str]
+    contact_ids: list[str] | None = None
+    regions: list[str] | None = None
 
 
 def load_probe(path: Path) -> ProbeMap:
@@ -31,15 +37,17 @@ def load_probe(path: Path) -> ProbeMap:
     group = read_probeinterface(str(path))
     probe = group.probes[0]
     order = np.asarray(probe.device_channel_indices, dtype=int)
-    regions = probe.contact_annotations.get("brain_region")
-    ids = probe.contact_ids
-    if regions is not None and ids is not None:
-        names = [f"{r} {i}" for r, i in zip(regions, ids)]
-    elif ids is not None:
-        names = [str(i) for i in ids]
+    regions_raw = probe.contact_annotations.get("brain_region")
+    ids_raw = probe.contact_ids
+    contact_ids = [str(i) for i in ids_raw] if ids_raw is not None else None
+    regions = [str(r) for r in regions_raw] if regions_raw is not None else None
+    if regions is not None and contact_ids is not None:
+        names = [f"{r} {i}" for r, i in zip(regions, contact_ids)]
+    elif contact_ids is not None:
+        names = list(contact_ids)
     else:
         names = [f"ch{k:0>2d}" for k in range(order.size)]
-    return ProbeMap(order=order, names=names)
+    return ProbeMap(order=order, names=names, contact_ids=contact_ids, regions=regions)
 
 
 def reorder_channels(data: np.ndarray, probe: ProbeMap) -> np.ndarray:

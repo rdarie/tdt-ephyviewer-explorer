@@ -11,6 +11,7 @@ from tdt_ephyviewer_explorer.impedance import (
     build_grid_source,
     build_impedance_source,
     classify_impedance_csv,
+    format_cell,
     read_impedance,
     scan_impedance,
 )
@@ -126,7 +127,9 @@ def test_build_grid_source_no_probe_is_a_strip(cfg) -> None:
     source = build_grid_source(data, probe=None, layout=None)
     assert source.grids[0].shape == (1, 4)
     assert list(source.grids[0][0]) == [10.0, 20.0, 30.0, 40.0]
-    assert list(source.labels[0]) == ["R1", "R2", "R3", "R4"]
+    assert [source.fields[0, c]["name"] for c in range(4)] == ["R1", "R2", "R3", "R4"]
+    assert source.fields[0, 0] == {"channel": 1, "units": "kOhm", "name": "R1"}
+    assert "contact_id" not in source.fields[0, 0]  # no probe -> no probe keys
 
 
 def test_build_grid_source_maps_via_device_channel_indices(cfg) -> None:
@@ -137,7 +140,11 @@ def test_build_grid_source_maps_via_device_channel_indices(cfg) -> None:
     source = build_grid_source(data, load_probe(PROBE_4CH), probe_layout(PROBE_4CH))
     assert source.grids[0].shape == (4, 1)
     assert [row[0] for row in source.grids[0]] == [40.0, 30.0, 20.0, 10.0]
-    assert [row[0] for row in source.labels] == ["A 00", "B 01", "C 02", "D 03"]
+    assert [source.fields[r, 0]["name"] for r in range(4)] == ["A 00", "B 01", "C 02", "D 03"]
+    # contact 0 -> acquisition channel order[0]+1 = 4, region "A", id "00"
+    assert source.fields[0, 0] == {
+        "channel": 4, "units": "kOhm", "name": "A 00", "contact_id": "00", "region": "A",
+    }
 
 
 def test_build_grid_source_uses_topo_grid(cfg) -> None:
@@ -147,6 +154,15 @@ def test_build_grid_source_uses_topo_grid(cfg) -> None:
     source = build_grid_source(data, load_probe(PROBE_TOPO), probe_layout(PROBE_TOPO))
     assert source.grids[0].shape == (2, 2)
     assert source.grids[0].tolist() == [[30.0, 40.0], [10.0, 20.0]]
+
+
+def test_build_grid_source_fields_align_with_grid(cfg) -> None:
+    data = read_impedance(FIXTURES / "impedance_1row.csv", cfg)
+    source = build_grid_source(data, load_probe(PROBE_TOPO), probe_layout(PROBE_TOPO))
+    assert source.fields.shape == source.grids[0].shape == (2, 2)
+    # topo places contact with region "C" (id "02", channel 2) at grid (row1,col1)
+    assert source.fields[1, 1]["region"] == "C"
+    assert source.fields[1, 1]["channel"] == 2
 
 
 def test_build_grid_source_keeps_one_grid_per_frequency(cfg) -> None:
@@ -194,3 +210,30 @@ def test_impedance_source_has_no_t_start(cfg) -> None:
     info = classify_impedance_csv(FIXTURES / "impedance_1row.csv", cfg)
     source = build_impedance_source(info, Attachment("impedance"), cfg)
     assert not hasattr(source, "t_start")
+
+
+# --- annotation templating ---
+
+
+def test_format_cell_named_and_multiline() -> None:
+    out = format_cell("R{channel}\n{impedance:.0f}", {"channel": 4, "impedance": 40.0})
+    assert out == "R4\n40"
+
+
+def test_format_cell_missing_key_is_empty() -> None:
+    assert format_cell("{region}", {"channel": 1}) == ""
+
+
+def test_format_cell_bad_spec_on_missing_value_is_empty() -> None:
+    # typo: 'impdance' is absent, and the numeric spec must not raise
+    assert format_cell("{impdance:.0f}", {"impedance": 40.0}) == ""
+
+
+def test_format_cell_formats_present_numeric() -> None:
+    assert format_cell("{impedance:.1f}", {"impedance": 15.0}) == "15.0"
+
+
+def test_format_cell_positional_field_is_empty() -> None:
+    # A stray positional field in a GUI-edited template must not crash the redraw.
+    assert format_cell("{}", {"channel": 1}) == ""
+    assert format_cell("{0}", {"channel": 1}) == ""

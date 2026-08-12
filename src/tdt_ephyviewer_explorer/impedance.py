@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 import re
+import string
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,44 @@ from tdt_ephyviewer_explorer.builders import Attachment
 from tdt_ephyviewer_explorer.probe import Layout, ProbeMap, load_probe, probe_layout
 
 log = logging.getLogger(__name__)
+
+
+class _BlankMissingFormatter(string.Formatter):
+    """``str.Formatter`` that renders unknown/unformattable fields as empty.
+
+    Keeps a live-edited GUI annotation template usable across blocks with and
+    without a probe: an absent keyword, a stray positional field (``{}``/``{0}``),
+    or a numeric spec applied to an absent (empty) value, yields ``""`` rather
+    than raising.
+    """
+
+    def get_value(self, key: Any, args: Sequence[Any], kwargs: Mapping[str, Any]) -> Any:
+        if isinstance(key, str):
+            return kwargs.get(key, "")
+        try:
+            return super().get_value(key, args, kwargs)
+        except (IndexError, KeyError):
+            return ""
+
+    def format_field(self, value: Any, format_spec: str) -> str:
+        try:
+            return super().format_field(value, format_spec)
+        except (ValueError, TypeError):
+            return ""
+
+
+_CELL_FORMATTER = _BlankMissingFormatter()
+
+
+def format_cell(template: str, fields: Mapping[str, Any]) -> str:
+    """Render one annotation cell from a named-field template.
+
+    :param template: A ``str.format``-style template using named fields, e.g.
+        ``"R{channel}\\n{impedance:.0f}"``.
+    :param fields: The available field values for this cell.
+    :returns: The formatted label; missing fields and failed specs render empty.
+    """
+    return _CELL_FORMATTER.vformat(template, (), dict(fields))
 
 
 @dataclass(frozen=True)
@@ -218,8 +257,10 @@ class ImpedanceGridSource:
         frequency column.
     :param grids: ``(n_rows, n_cols)`` arrays, NaN where no contact occupies the
         cell. Row ``0`` renders at the top.
-    :param labels: ``(n_rows, n_cols)`` object array of per-cell contact labels,
-        ``""`` for empty cells.
+    :param fields: ``(n_rows, n_cols)`` object array of per-cell field dicts for
+        annotation templating (``channel``/``units``/``name`` always, plus
+        ``contact_id``/``region`` when a probe was supplied); ``None`` for empty
+        cells.
     :param metadata: Averaged metadata columns, one dict per grid.
     """
 
@@ -227,7 +268,7 @@ class ImpedanceGridSource:
     units: str
     frequencies: tuple[float | None, ...]
     grids: tuple[np.ndarray, ...]
-    labels: np.ndarray
+    fields: np.ndarray
     metadata: tuple[dict[str, float], ...]
 
 
@@ -273,9 +314,15 @@ def build_grid_source(
             f"channels are {sorted(index_of)}"
         )
 
-    cell_labels = np.full((n_rows, n_cols), "", dtype=object)
+    cell_fields = np.full((n_rows, n_cols), None, dtype=object)
     for k in range(len(wanted)):
-        cell_labels[row[k], col[k]] = labels[k]
+        cell = {"channel": int(wanted[k]), "units": data.units, "name": labels[k]}
+        if probe is not None:
+            if probe.contact_ids is not None:
+                cell["contact_id"] = probe.contact_ids[k]
+            if probe.regions is not None:
+                cell["region"] = probe.regions[k]
+        cell_fields[row[k], col[k]] = cell
     grids = []
     for group in data.groups:
         grid = np.full((n_rows, n_cols), np.nan)
@@ -288,7 +335,7 @@ def build_grid_source(
         units=data.units,
         frequencies=tuple(g.frequency for g in data.groups),
         grids=tuple(grids),
-        labels=cell_labels,
+        fields=cell_fields,
         metadata=tuple(g.metadata for g in data.groups),
     )
 

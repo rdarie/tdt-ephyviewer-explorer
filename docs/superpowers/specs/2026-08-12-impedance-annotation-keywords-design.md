@@ -39,11 +39,12 @@ Always available (from the impedance CSV):
 - `impedance` — the averaged impedance for the cell at the selected frequency
   (float, raw averaged value, same units as the colorbar). Injected at render.
 - `units` — impedance units parsed from the CSV header, e.g. `"kOhm"`.
+- `name` — display label; `R<n>` without a probe, or the composed probe label
+  (`"<region> <id>"`, else `<id>`) when a probe is attached; preserves what the
+  old `labels` array carried.
 
 Available only when a probe file is attached (omitted otherwise):
 
-- `name` — the composed probe label (`"<region> <id>"`, else `<id>`); preserves
-  what the old `labels` array carried.
 - `contact_id` — probeinterface `contact_id`.
 - `region` — the `brain_region` contact annotation.
 
