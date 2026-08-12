@@ -231,3 +231,9 @@ def test_format_cell_bad_spec_on_missing_value_is_empty() -> None:
 
 def test_format_cell_formats_present_numeric() -> None:
     assert format_cell("{impedance:.1f}", {"impedance": 15.0}) == "15.0"
+
+
+def test_format_cell_positional_field_is_empty() -> None:
+    # A stray positional field in a GUI-edited template must not crash the redraw.
+    assert format_cell("{}", {"channel": 1}) == ""
+    assert format_cell("{0}", {"channel": 1}) == ""

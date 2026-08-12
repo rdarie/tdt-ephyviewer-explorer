@@ -27,14 +27,18 @@ class _BlankMissingFormatter(string.Formatter):
     """``str.Formatter`` that renders unknown/unformattable fields as empty.
 
     Keeps a live-edited GUI annotation template usable across blocks with and
-    without a probe: an absent keyword, or a numeric spec applied to an absent
-    (empty) value, yields ``""`` rather than raising.
+    without a probe: an absent keyword, a stray positional field (``{}``/``{0}``),
+    or a numeric spec applied to an absent (empty) value, yields ``""`` rather
+    than raising.
     """
 
     def get_value(self, key: Any, args: Sequence[Any], kwargs: Mapping[str, Any]) -> Any:
         if isinstance(key, str):
             return kwargs.get(key, "")
-        return super().get_value(key, args, kwargs)
+        try:
+            return super().get_value(key, args, kwargs)
+        except (IndexError, KeyError):
+            return ""
 
     def format_field(self, value: Any, format_spec: str) -> str:
         try:
