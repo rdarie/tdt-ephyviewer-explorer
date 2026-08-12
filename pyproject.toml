@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 tdt-explore = "tdt_ephyviewer_explorer.app:main"
 tdt-metadata = "tdt_ephyviewer_explorer.metadata.app:main"
+tdt-install-shortcuts = "tdt_ephyviewer_explorer.shortcuts:main"
 
 [dependency-groups]
 dev = [

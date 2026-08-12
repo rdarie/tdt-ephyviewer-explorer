@@ -73,6 +73,16 @@ tank with the in-window Browse button.
 Per-tank sessions (your composed viewer layouts) are saved under
 `<tank>/tdt_explore/sessions/` — raw block directories are never modified.
 
+### Desktop shortcuts (Windows)
+
+Create Desktop shortcuts for the two GUIs (run once, per machine):
+
+    uv run tdt-install-shortcuts
+
+This drops **TDT Explore** and **TDT Metadata** on your Desktop. They launch the
+apps with no console window; pick a tank with the in-window picker. Re-run the
+command after moving the project or recreating the virtual environment.
+
 ## Session metadata browser
 
 ```bash
