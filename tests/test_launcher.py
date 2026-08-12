@@ -389,7 +389,13 @@ def _grid_source(n_freq: int = 1):
         name="spinal", units="kOhm",
         frequencies=tuple(1000.0 * (k + 1) for k in range(n_freq)),
         grids=tuple(grid + 100.0 * k for k in range(n_freq)),
-        labels=np.array([["A 00", "B 01"], ["C 02", ""]], dtype=object),
+        fields=np.array(
+            [
+                [{"channel": 1, "units": "kOhm", "name": "A 00"}, {"channel": 2, "units": "kOhm", "name": "B 01"}],
+                [{"channel": 3, "units": "kOhm", "name": "C 02"}, None],
+            ],
+            dtype=object,
+        ),
         metadata=tuple({"REF (kOhm)": 5.0} for _ in range(n_freq)),
     )
 

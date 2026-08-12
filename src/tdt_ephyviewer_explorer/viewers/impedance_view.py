@@ -17,7 +17,7 @@ class ImpedanceViewer(ViewerBase):
     ``MainViewer`` from widening the navigation range for this dock.
 
     The source is duck-typed (see :class:`~impedance.ImpedanceGridSource`): it must
-    expose ``name``, ``units``, ``frequencies``, ``grids``, ``labels``, and
+    expose ``name``, ``units``, ``frequencies``, ``grids``, ``fields``, and
     ``metadata``.
     """
 
