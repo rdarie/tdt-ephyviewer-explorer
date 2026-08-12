@@ -6,6 +6,7 @@ actual shortcut creation (:func:`install`) is Windows-only.
 """
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -99,3 +100,41 @@ def build_powershell(spec: ShortcutSpec) -> str:
         f"$lnk.Description = {description}\n"
         "$lnk.Save()\n"
     )
+
+
+def install(specs: list[ShortcutSpec]) -> list[Path]:
+    """Create the given shortcuts on the current user's Desktop.
+
+    :param specs: Shortcuts to create.
+    :returns: Paths of the created ``.lnk`` files (Desktop-relative names).
+    :raises RuntimeError: If not running on Windows.
+    """
+    if sys.platform != "win32":
+        raise RuntimeError("Desktop shortcuts can only be installed on Windows.")
+    created: list[Path] = []
+    for spec in specs:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", build_powershell(spec)],
+            check=True,
+        )
+        created.append(Path(f"{spec.name}.lnk"))
+    return created
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point for the ``tdt-install-shortcuts`` console script.
+
+    :param argv: CLI args (only ``-h`` is meaningful).
+    :returns: Process exit code.
+    """
+    argparse.ArgumentParser(
+        prog="tdt-install-shortcuts",
+        description="Create desktop shortcuts for tdt-explore and tdt-metadata (Windows).",
+    ).parse_args(argv)
+
+    pythonw = find_pythonw()
+    created = install(explorer_specs(pythonw))
+    print("Created desktop shortcuts:")
+    for path in created:
+        print(f"  {path.name}")
+    return 0

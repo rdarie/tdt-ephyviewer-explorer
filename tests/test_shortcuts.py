@@ -65,3 +65,38 @@ def test_build_powershell_escapes_single_quotes() -> None:
     ps = shortcuts.build_powershell(spec)
     # A literal single quote is doubled for PowerShell single-quoted strings.
     assert "va''b" in ps
+
+
+def test_install_raises_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shortcuts.sys, "platform", "linux")
+    with pytest.raises(RuntimeError, match="Windows"):
+        shortcuts.install(shortcuts.explorer_specs(_pythonw()))
+
+
+def test_install_runs_powershell_per_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shortcuts.sys, "platform", "win32")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(cmd)
+        return None
+
+    monkeypatch.setattr(shortcuts.subprocess, "run", fake_run)
+    specs = shortcuts.explorer_specs(_pythonw())
+    created = shortcuts.install(specs)
+    assert len(calls) == len(specs)
+    assert all(cmd[0].lower().startswith("powershell") for cmd in calls)
+    assert [p.name for p in created] == ["TDT Explore.lnk", "TDT Metadata.lnk"]
+
+
+def test_main_invokes_install(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_install(specs):  # type: ignore[no-untyped-def]
+        seen["specs"] = specs
+        return [Path("TDT Explore.lnk"), Path("TDT Metadata.lnk")]
+
+    monkeypatch.setattr(shortcuts, "install", fake_install)
+    rc = shortcuts.main([])
+    assert rc == 0
+    assert len(seen["specs"]) == 2
