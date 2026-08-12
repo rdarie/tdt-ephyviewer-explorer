@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 import re
+import string
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,40 @@ from tdt_ephyviewer_explorer.builders import Attachment
 from tdt_ephyviewer_explorer.probe import Layout, ProbeMap, load_probe, probe_layout
 
 log = logging.getLogger(__name__)
+
+
+class _BlankMissingFormatter(string.Formatter):
+    """``str.Formatter`` that renders unknown/unformattable fields as empty.
+
+    Keeps a live-edited GUI annotation template usable across blocks with and
+    without a probe: an absent keyword, or a numeric spec applied to an absent
+    (empty) value, yields ``""`` rather than raising.
+    """
+
+    def get_value(self, key: Any, args: Sequence[Any], kwargs: Mapping[str, Any]) -> Any:
+        if isinstance(key, str):
+            return kwargs.get(key, "")
+        return super().get_value(key, args, kwargs)
+
+    def format_field(self, value: Any, format_spec: str) -> str:
+        try:
+            return super().format_field(value, format_spec)
+        except (ValueError, TypeError):
+            return ""
+
+
+_CELL_FORMATTER = _BlankMissingFormatter()
+
+
+def format_cell(template: str, fields: Mapping[str, Any]) -> str:
+    """Render one annotation cell from a named-field template.
+
+    :param template: A ``str.format``-style template using named fields, e.g.
+        ``"R{channel}\\n{impedance:.0f}"``.
+    :param fields: The available field values for this cell.
+    :returns: The formatted label; missing fields and failed specs render empty.
+    """
+    return _CELL_FORMATTER.vformat(template, (), dict(fields))
 
 
 @dataclass(frozen=True)

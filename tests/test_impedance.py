@@ -11,6 +11,7 @@ from tdt_ephyviewer_explorer.impedance import (
     build_grid_source,
     build_impedance_source,
     classify_impedance_csv,
+    format_cell,
     read_impedance,
     scan_impedance,
 )
@@ -209,3 +210,24 @@ def test_impedance_source_has_no_t_start(cfg) -> None:
     info = classify_impedance_csv(FIXTURES / "impedance_1row.csv", cfg)
     source = build_impedance_source(info, Attachment("impedance"), cfg)
     assert not hasattr(source, "t_start")
+
+
+# --- annotation templating ---
+
+
+def test_format_cell_named_and_multiline() -> None:
+    out = format_cell("R{channel}\n{impedance:.0f}", {"channel": 4, "impedance": 40.0})
+    assert out == "R4\n40"
+
+
+def test_format_cell_missing_key_is_empty() -> None:
+    assert format_cell("{region}", {"channel": 1}) == ""
+
+
+def test_format_cell_bad_spec_on_missing_value_is_empty() -> None:
+    # typo: 'impdance' is absent, and the numeric spec must not raise
+    assert format_cell("{impdance:.0f}", {"impedance": 40.0}) == ""
+
+
+def test_format_cell_formats_present_numeric() -> None:
+    assert format_cell("{impedance:.1f}", {"impedance": 15.0}) == "15.0"
