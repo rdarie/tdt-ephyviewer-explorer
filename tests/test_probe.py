@@ -58,3 +58,26 @@ def test_probe_layout_infers_from_contact_positions() -> None:
 def test_probe_layout_duplicate_cell_raises() -> None:
     with pytest.raises(ValueError, match="both map to grid cell"):
         probe_layout(DUP_FIXTURE)
+
+
+def test_load_probe_carries_contact_ids_and_regions() -> None:
+    probe = load_probe(FIXTURE)
+    assert probe.contact_ids == ["00", "01", "02", "03"]
+    assert probe.regions == ["A", "B", "C", "D"]
+
+
+def test_load_probe_leaves_ids_and_regions_none_when_absent(tmp_path) -> None:
+    path = tmp_path / "bare.json"
+    path.write_text(
+        '{"specification": "probeinterface", "version": "0.3.2", "probes": [{'
+        '"ndim": 2, "si_units": "um", "annotations": {}, "contact_annotations": {}, '
+        '"contact_positions": [[0, 0], [0, 100]], '
+        '"contact_plane_axes": [[0, 1], [0, 1]], '
+        '"contact_shapes": ["circle", "circle"], '
+        '"contact_shape_params": [{"radius": 5}, {"radius": 5}], '
+        '"device_channel_indices": [0, 1]}]}'
+    )
+    probe = load_probe(path)
+    assert probe.contact_ids is None
+    assert probe.regions is None
+    assert probe.names == ["ch00", "ch01"]  # fallback unchanged
