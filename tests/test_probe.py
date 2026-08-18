@@ -30,9 +30,21 @@ def test_reorder_channels_permutes_rows() -> None:
     assert list(out[:, 0]) == [3, 2, 1, 0]
 
 
-def test_reorder_channels_count_mismatch_raises() -> None:
+def test_reorder_channels_discards_unmapped_stream_channels() -> None:
+    # 4-channel probe (order [3,2,1,0]) on an 8-channel stream: keep the mapped
+    # four, discard channels 4-7 rather than raising.
     probe = load_probe(FIXTURE)
-    with pytest.raises(ValueError, match="channel count"):
+    data = np.arange(8)[:, np.newaxis] * np.ones((1, 2))  # channel i has value i
+    out = reorder_channels(data, probe)
+    assert out.shape == (4, 2)
+    assert list(out[:, 0]) == [3, 2, 1, 0]
+
+
+def test_reorder_channels_probe_beyond_stream_raises() -> None:
+    # Reverse mismatch: probe references channel 3 but the stream has only 3
+    # channels (indices 0-2); that channel cannot be discarded, so raise.
+    probe = load_probe(FIXTURE)
+    with pytest.raises(ValueError, match="outside the stream"):
         reorder_channels(np.zeros((3, 10)), probe)
 
 

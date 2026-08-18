@@ -1,12 +1,15 @@
 """Probe loading (probeinterface) and probe-native channel reordering."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 import numpy as np
 from probeinterface import read_probeinterface
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,18 +54,33 @@ def load_probe(path: Path) -> ProbeMap:
 
 
 def reorder_channels(data: np.ndarray, probe: ProbeMap) -> np.ndarray:
-    """Reorder a ``(n_channels, n_samples)`` array into probe-native contact order.
+    """Select and reorder a ``(n_channels, n_samples)`` array into probe-native order.
+
+    The probe map selects a subset of the stream: row ``k`` of the result is raw
+    channel ``order[k]``. Stream channels not referenced by the probe are discarded
+    rather than raising, so a probe covering fewer channels than the stream carries
+    is valid. The reverse mismatch — a probe referencing a channel the stream does
+    not have — still raises, since that channel cannot be recovered.
 
     :param data: Raw acquisition-order signal, channels along axis 0.
     :param probe: The probe reorder map.
-    :returns: A view/copy with rows permuted so row ``k`` = raw channel ``order[k]``.
-    :raises ValueError: If the probe contact count does not match the channel count.
+    :returns: A copy with rows selected/permuted so row ``k`` = raw channel ``order[k]``.
+    :raises ValueError: If any probe channel index falls outside the stream's channels.
     """
-    if data.shape[0] != probe.order.size:
+    n_stream = data.shape[0]
+    order = probe.order
+    if order.size and (int(order.min()) < 0 or int(order.max()) >= n_stream):
         raise ValueError(
-            f"probe channel count {probe.order.size} != stream channel count {data.shape[0]}"
+            f"probe references channels outside the stream's {n_stream} channels"
         )
-    return data[probe.order, :]
+    if order.size != n_stream:
+        log.info(
+            "probe maps %d of %d stream channels; discarding %d unmapped",
+            order.size,
+            n_stream,
+            n_stream - order.size,
+        )
+    return data[order, :]
 
 
 @dataclass(frozen=True)
