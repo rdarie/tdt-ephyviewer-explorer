@@ -55,12 +55,15 @@ class Session:
     :param attachments: TDT store name -> list of serialized attachment dicts.
     :param processed: Processed-parquet sources composed into this session.
     :param impedance: Impedance CSV sidecars composed into this session.
+    :param annotations_labels_path: Absolute path to the epoch-encoder labels YAML,
+        or ``None`` to use the config default. Enablement is not stored (always-on).
     """
 
     block: str
     attachments: dict[str, list[dict]] = field(default_factory=dict)
     processed: list[ProcessedSource] = field(default_factory=list)
     impedance: list[ImpedanceSource] = field(default_factory=list)
+    annotations_labels_path: str | None = None
 
 
 def save_session(session: Session, tank_dir: Path, name: str) -> Path:
@@ -90,4 +93,5 @@ def load_session(path: Path) -> Session:
         attachments=container["attachments"],
         processed=processed,
         impedance=impedance,
+        annotations_labels_path=container.get("annotations_labels_path"),
     )

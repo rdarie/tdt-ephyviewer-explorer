@@ -90,3 +90,32 @@ def test_load_session_without_impedance_key(tmp_path: Path) -> None:
     loaded = load_session(path)
     assert loaded.impedance == []
     assert loaded.block == "rRew03-1"
+
+
+def test_session_annotations_labels_path_round_trip(tmp_path: Path) -> None:
+    session = Session(
+        block="rRew03-1",
+        attachments={"Wav1": [{"viewer_type": "trace", "delay_ms": 0.0, "probe_path": None, "params": {}}]},
+        annotations_labels_path="/abs/labels.yaml",
+    )
+    out = save_session(session, tmp_path, "ann")
+    loaded = load_session(out)
+    assert loaded == session
+    assert loaded.annotations_labels_path == "/abs/labels.yaml"
+
+
+def test_session_default_annotations_labels_path_is_none() -> None:
+    assert Session(block="b").annotations_labels_path is None
+
+
+def test_load_session_without_annotations_key(tmp_path: Path) -> None:
+    # Sessions written before this feature have no key and must still load.
+    path = tmp_path / "old.yaml"
+    path.write_text(
+        "block: rRew03-1\n"
+        "attachments: {}\n"
+        "processed: []\n"
+        "impedance: []\n"
+    )
+    loaded = load_session(path)
+    assert loaded.annotations_labels_path is None
