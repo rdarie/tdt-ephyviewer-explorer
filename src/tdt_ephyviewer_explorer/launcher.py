@@ -8,6 +8,11 @@ from typing import Any
 from ephyviewer import MainViewer
 from omegaconf import DictConfig, OmegaConf
 
+from tdt_ephyviewer_explorer.annotations import (
+    DEFAULT_CHANNEL_NAME,
+    build_annotation_source,
+    resolve_labels_path,
+)
 from tdt_ephyviewer_explorer.builders import Attachment, build_source_for, build_viewer
 from tdt_ephyviewer_explorer.impedance import (
     ImpedanceInfo,
@@ -158,6 +163,17 @@ def plan_views(
             name = f"{isource.name}:{attachment.viewer_type}"
             params = {**viewer_defaults.get(attachment.viewer_type, {}), **attachment.params}
             plans.append(ViewPlan(name, attachment.viewer_type, params, source))
+
+    # Always-on writable annotation encoder, one per launched block.
+    labels_path = resolve_labels_path(cfg, session.annotations_labels_path)
+    plans.append(
+        ViewPlan(
+            name=DEFAULT_CHANNEL_NAME,
+            viewer_type="epochencoder",
+            params=dict(viewer_defaults.get("epochencoder", {})),
+            source=build_annotation_source(block_path, labels_path, cfg),
+        )
+    )
     return plans
 
 
