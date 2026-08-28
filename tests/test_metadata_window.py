@@ -247,7 +247,7 @@ def test_saving_an_analysis_note_writes_into_the_block_dir(qapp, monkeypatch, tm
     win.open_analysis_notes("Epi_02_Green-260727-154827")
     win.panel.set_cell_text(0, 2, "EMG saturated")
 
-    written = tank / "Epi_02_Green-260727-154827" / "analysis_notes.txt"
+    written = tank / "Epi_02_Green-260727-154827" / "tdt_explore" / "analysis_notes.txt"
     assert written.is_file()
     assert "EMG saturated" in written.read_bytes().decode("utf-8")
 

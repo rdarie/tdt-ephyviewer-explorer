@@ -73,9 +73,11 @@ expand — so don't move the expensive reads into the eager path.
 
 ### Key concepts
 * **`.tsq` index reuse (perf):** parse once via `read_headers`, then thread the `headers` object through `scan_block` / `load_store` / `plan_views`. The Control Window caches it on `ControlWindow.headers` and `app.py` passes it into `launch_block`. Don't reintroduce per-read re-parsing.
-* **Session** (`session.py`): a pure composition record (`block` + `{store: [attachment dicts]}`), NOT viewer state. Persisted as YAML under `<tank>/tdt_explore/sessions/`. **Raw block dirs are never written to.** Conversion: `spec_to_session` (tree state → Session), `_apply_session` (Session → tree).
-  **Exception:** `tdt-metadata` writes `<block>/analysis_notes.txt` — the one sanctioned
-  write into a raw block dir, for post-hoc annotations. Nothing else may write there.
+* **Session** (`session.py`): a pure composition record (`block` + `{store: [attachment dicts]}`), NOT viewer state. Persisted as YAML under `<tank>/tdt_explore/sessions/`. **Raw Synapse files are never modified.** Conversion: `spec_to_session` (tree state → Session), `_apply_session` (Session → tree).
+  **Block-dir writes:** any data written into a raw block dir must live under a
+  `<block>/tdt_explore/` subfolder (never beside the raw Synapse files). Example:
+  `tdt-metadata` writes `<block>/tdt_explore/analysis_notes.txt` for post-hoc
+  annotations (`notes.analysis_notes_path`, `notes.BLOCK_SUBDIR`).
 * **Config** (Hydra, `config/`): `config.yaml` composes `viewer/`, `roles/`, `schema/`, `startup/`, `processed/`, `impedance/`, `metadata/` groups (all `# @package _global_`). `startup` drives one-time launch behavior (`auto_scale`, `trace_color_scheme`) applied by `launcher.apply_startup`. Loaded read-only via `config_schema.load_config`; GUI seeds its tree from it and saves tweaks to sessions. Add hyperparameters/patterns here, never in code.
 * **Roles/schemas/formatters:** a `RoleRule` may pin a column `schema` (named list in `schema/default.yaml`) and a `formatter` (Hydra `_target_`, instantiated for event labels). Formatters implement `StimFormatter.format_row` (`formatters/base.py`); `GenericFormatter` is the fallback, `IZVoiceFormatter` the example.
 * **Probes** (`probe.py`): optional probeinterface JSON reorders analog channels into contact order (timeseries only); no probe = acquisition order.

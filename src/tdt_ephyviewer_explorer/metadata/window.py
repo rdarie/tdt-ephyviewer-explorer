@@ -11,7 +11,12 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt, Signal
 
 from tdt_ephyviewer_explorer.config_schema import load_config
-from tdt_ephyviewer_explorer.metadata.notes import NOTES_FILENAME, AnalysisNotes, read_notes
+from tdt_ephyviewer_explorer.metadata.notes import (
+    NOTES_FILENAME,
+    AnalysisNotes,
+    analysis_notes_path,
+    read_notes,
+)
 from tdt_ephyviewer_explorer.metadata.notes_panel import NotesPanel
 from tdt_ephyviewer_explorer.metadata.stim import format_voice_line, stim_config_from
 from tdt_ephyviewer_explorer.metadata.summary import (
@@ -373,7 +378,7 @@ class MetadataWindow(QtWidgets.QWidget):
         :returns: The number of notes already on disk.
         """
         filename = str(self._cfg.metadata.analysis_notes_filename)
-        return len(read_notes(summary.path / filename).notes)
+        return len(read_notes(analysis_notes_path(summary.path, filename)).notes)
 
     def _notes_row(
         self,

@@ -11,6 +11,20 @@ from tdt_ephyviewer_explorer.metadata.textio import read_text, write_text_atomic
 
 NOTES_FILENAME = "Notes.txt"
 
+#: Subfolder under a block directory for all app-written data (mirrors the
+#: tank-level ``tdt_explore/sessions/``). Raw Synapse files are never touched.
+BLOCK_SUBDIR = "tdt_explore"
+
+
+def analysis_notes_path(block_path: Path, filename: str) -> Path:
+    """Locate a block's analysis-notes sidecar inside its ``tdt_explore`` subfolder.
+
+    :param block_path: The block directory.
+    :param filename: Sidecar filename, from config.
+    :returns: The sidecar path (the subfolder may not exist yet).
+    """
+    return block_path / BLOCK_SUBDIR / filename
+
 LINE_END = "\r\n"
 _TIME_FMT = "%I:%M:%S%p"
 _DATE_FMT = "%m/%d/%Y"
@@ -317,7 +331,7 @@ class AnalysisNotes:
             taken from the block's ``Notes.txt``.
         :returns: The loaded editing model. No file is created.
         """
-        path = block_path / filename
+        path = analysis_notes_path(block_path, filename)
         if not path.is_file():
             return cls(path, header, (), None)
         existing = read_notes(path)
@@ -403,6 +417,7 @@ class AnalysisNotes:
                 warnings=(),
             )
         )
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         write_text_atomic(self._path, text)
         self._snapshot = _snapshot(self._path)
 

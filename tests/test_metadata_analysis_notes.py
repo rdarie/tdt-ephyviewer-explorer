@@ -28,8 +28,17 @@ T2 = datetime(2026, 7, 29, 14, 5, 31)
 def test_load_on_a_block_with_no_file(tmp_path: Path) -> None:
     an = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
     assert an.notes == ()
-    assert an.path == tmp_path / FILENAME
+    assert an.path == tmp_path / "tdt_explore" / FILENAME  # writes land in the subfolder
     assert not an.path.exists()  # browsing must not create the file
+
+
+def test_save_creates_the_tdt_explore_subfolder(tmp_path: Path) -> None:
+    an = AnalysisNotes.load(tmp_path, FILENAME, HEADER)
+    an.append("x", T1)
+    an.save()  # subfolder does not exist yet; save must create it
+    assert an.path == tmp_path / "tdt_explore" / FILENAME
+    assert (tmp_path / "tdt_explore").is_dir()
+    assert an.path.is_file()
 
 
 def test_append_and_save_creates_the_file(tmp_path: Path) -> None:
