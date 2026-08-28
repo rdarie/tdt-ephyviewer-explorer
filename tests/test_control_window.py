@@ -495,3 +495,38 @@ def test_enabled_attachments_still_gates_probe_behind_reorder() -> None:
     assert _enabled_attachments(state)[0]["probe_path"] is None
     state["reorder"] = True
     assert _enabled_attachments(state)[0]["probe_path"] == "p.json"
+
+
+# --- annotations labels-path box ---
+
+from tdt_ephyviewer_explorer.annotations import resolve_labels_path
+from tdt_ephyviewer_explorer.config_schema import load_config
+from tdt_ephyviewer_explorer.control_window import ControlWindow
+from tdt_ephyviewer_explorer.session import Session
+
+
+def test_global_group_seeds_labels_path(qapp) -> None:
+    cfg = load_config()
+    win = ControlWindow(cfg=cfg)
+    field = win._global_root.child("annotations_labels_path")
+    assert field.value() == str(resolve_labels_path(cfg))
+
+
+def test_launch_threads_labels_path_onto_session(qapp) -> None:
+    cfg = load_config()
+    win = ControlWindow(cfg=cfg)
+    win._block_path = Path("tank") / "blk"  # bypass a real block load
+    win._global_root.child("annotations_labels_path").setValue("/custom/labels.yaml")
+
+    captured: list[Session] = []
+    win.launch_requested.connect(captured.append)
+    win._on_launch()
+
+    assert captured and captured[0].annotations_labels_path == "/custom/labels.yaml"
+
+
+def test_apply_session_restores_labels_path(qapp) -> None:
+    cfg = load_config()
+    win = ControlWindow(cfg=cfg)
+    win._apply_session(Session(block="blk", annotations_labels_path="/from/session.yaml"))
+    assert win._global_root.child("annotations_labels_path").value() == "/from/session.yaml"

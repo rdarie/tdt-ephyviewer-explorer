@@ -9,6 +9,7 @@ from pyqtgraph.parametertree import Parameter, ParameterTree
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
 
+from tdt_ephyviewer_explorer.annotations import resolve_labels_path
 from tdt_ephyviewer_explorer.config_schema import load_config
 from tdt_ephyviewer_explorer.impedance import (
     ImpedanceInfo,
@@ -257,6 +258,11 @@ class ControlWindow(QtWidgets.QWidget):
             type="group",
             children=[
                 {"name": "block", "type": "list", "limits": [], "value": None},
+                {
+                    "name": "annotations_labels_path",
+                    "type": "str",
+                    "value": str(resolve_labels_path(self._cfg)),
+                },
             ],
         )
         self._global_tree.setParameters(self._global_root, showTop=False)
@@ -507,12 +513,17 @@ class ControlWindow(QtWidgets.QWidget):
             viewers=VALID_VIEWERS["timeseries"],
         )
 
+    def _annotations_labels_path(self) -> str:
+        """Current value of the global annotations labels-path box."""
+        return str(self._global_root.child("annotations_labels_path").value())
+
     def _on_launch(self) -> None:
         """Read tree state, build a Session, and emit launch_requested signal."""
         if self._block_path is None:
             return
         state = self._read_state()
         session = spec_to_session(self._block_path.name, state)
+        session.annotations_labels_path = self._annotations_labels_path()
         self.launch_requested.emit(session)
 
     def _read_state(self) -> dict:
@@ -539,6 +550,7 @@ class ControlWindow(QtWidgets.QWidget):
         name, ok = QtWidgets.QInputDialog.getText(self, "Save session", "Session name:")
         if ok and name:
             session = spec_to_session(self._block_path.name, self._read_state())
+            session.annotations_labels_path = self._annotations_labels_path()
             save_session(session, self._block_path.parent, name)
 
     def _on_load(self) -> None:
@@ -555,6 +567,11 @@ class ControlWindow(QtWidgets.QWidget):
 
     def _apply_session(self, session: Session) -> None:
         """Set tree values from a loaded session (enabling the saved viewers)."""
+        if session.annotations_labels_path:
+            self._global_root.child("annotations_labels_path").setValue(
+                session.annotations_labels_path
+            )
+
         # Rebuild processed groups from the session so their viewer state can be applied.
         existing = {g.name() for g in self._root.children()}
         new_infos: list[ProcessedInfo] = []
