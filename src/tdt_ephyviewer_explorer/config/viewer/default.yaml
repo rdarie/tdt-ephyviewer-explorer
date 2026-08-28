@@ -10,6 +10,7 @@ viewers:
   eventlist: {}
   spiketrain: {}
   epoch: {}
+  epochencoder: {}
   impedance:
     vmin: 0.0                  # kOhm
     vmax: 200.0                # kOhm; values outside [vmin, vmax] clamp to the end colors

@@ -6,4 +6,5 @@ defaults:
   - processed: default
   - impedance: default
   - metadata: default
+  - annotations: default
   - _self_

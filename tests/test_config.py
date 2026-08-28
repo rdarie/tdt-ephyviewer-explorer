@@ -63,3 +63,15 @@ def test_impedance_channel_regex_matches_rig_headers() -> None:
     assert rx.match("REF (kOhm)") is None
     assert rx.match("TIME (S)") is None
     assert rx.match("TARGET (uA)") is None
+
+
+def test_config_has_annotations_group() -> None:
+    cfg = load_config()
+    assert cfg.annotations.labels_path == "annotations/labels.yaml"
+    assert cfg.annotations.filename == "annotations.csv"
+    assert cfg.annotations.restrict_to_possible_labels is False
+
+
+def test_config_has_epochencoder_viewer_defaults() -> None:
+    cfg = load_config()
+    assert "epochencoder" in cfg.viewers
