@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 from ephyviewer import (
+    EpochEncoder,
     EpochViewer,
     EventList,
     InMemoryAnalogSignalSource,
@@ -243,6 +244,7 @@ _VIEWER_CLASSES = {
     "eventlist": EventList,
     "spiketrain": SpikeTrainViewer,
     "epoch": EpochViewer,
+    "epochencoder": EpochEncoder,
     "impedance": ImpedanceViewer,
 }
 
