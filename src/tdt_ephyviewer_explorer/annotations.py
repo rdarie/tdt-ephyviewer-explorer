@@ -24,14 +24,19 @@ DEFAULT_CHANNEL_NAME = "annotations"
 def load_labels(path: Path) -> list[str]:
     """Load the possible-labels YAML list.
 
-    :param path: A YAML file whose top level is a list of strings.
+    :param path: A YAML file whose top level is a non-empty list of strings.
     :returns: The label strings, in file order.
-    :raises ValueError: If the file is not a list, or has a non-string entry.
+    :raises ValueError: If the file is not a list, is empty, or has a
+        non-string entry.
     """
     data = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
-    if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+    if (
+        not isinstance(data, list)
+        or not data
+        or not all(isinstance(x, str) for x in data)
+    ):
         raise ValueError(
-            f"labels file {path} must be a YAML list of strings, got {data!r}"
+            f"labels file {path} must be a non-empty YAML list of strings, got {data!r}"
         )
     return list(data)
 

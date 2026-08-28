@@ -39,6 +39,12 @@ def test_load_labels_rejects_non_string_entries(tmp_path: Path) -> None:
         load_labels(p)
 
 
+def test_load_labels_rejects_empty_list(tmp_path: Path) -> None:
+    p = _write(tmp_path / "e.yaml", "[]\n")
+    with pytest.raises(ValueError):
+        load_labels(p)
+
+
 def test_resolve_labels_path_relative_against_config_dir() -> None:
     cfg = load_config()
     resolved = resolve_labels_path(cfg)
