@@ -271,3 +271,22 @@ def test_build_event_source_from_frame_missing_label_column_raises() -> None:
             label_column="does_not_exist", formatter=None,
             viewer_type="eventlist", delay_ms=0.0,
         )
+
+
+def test_build_viewer_epochencoder(tmp_path) -> None:
+    import pytest
+    pytest.importorskip("ephyviewer")
+    from ephyviewer import EpochEncoder, mkQApp
+
+    from tdt_ephyviewer_explorer.annotations import build_annotation_source, resolve_labels_path
+    from tdt_ephyviewer_explorer.builders import build_viewer
+    from tdt_ephyviewer_explorer.config_schema import load_config
+
+    mkQApp()
+    cfg = load_config()
+    block = tmp_path / "blk"
+    block.mkdir()
+    src = build_annotation_source(block, resolve_labels_path(cfg), cfg)
+    view = build_viewer("epochencoder", src, name="annotations", params={})
+    assert isinstance(view, EpochEncoder)
+    assert view.name == "annotations"

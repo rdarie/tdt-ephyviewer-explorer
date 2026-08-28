@@ -66,6 +66,9 @@ def _patch_block(monkeypatch, loads):
         "scan_block",
         lambda p, headers=None: [StoreInfo("UDP1", "scalars", None, 1, None, 0.0, None)],
     )
+    monkeypatch.setattr(
+        launcher_mod, "build_annotation_source", lambda *a, **k: object()
+    )
 
     def fake_load(block_path, name, headers=None):
         loads.append(name)
@@ -89,7 +92,7 @@ def test_plan_views_loads_store_once_for_multiple_viewers(monkeypatch) -> None:
     )
     plans = plan_views(Path("tank/blk"), session, load_config())
     assert loads == ["UDP1"]  # loaded once despite two viewers on the same store
-    assert [p.name for p in plans] == ["UDP1:eventlist", "UDP1:spiketrain"]
+    assert [p.name for p in plans] == ["UDP1:eventlist", "UDP1:spiketrain", "annotations"]
     from ephyviewer import InMemoryEventSource, InMemorySpikeSource
 
     assert isinstance(plans[0].source, InMemoryEventSource)
@@ -112,6 +115,9 @@ def test_plan_views_parses_block_index_once(monkeypatch) -> None:
 
     monkeypatch.setattr(tank_mod.tdt, "read_block", fake_read_block)
     monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
+    monkeypatch.setattr(
+        launcher_mod, "build_annotation_source", lambda *a, **k: object()
+    )
     session = Session(
         block="blk",
         attachments={
@@ -144,6 +150,9 @@ def test_plan_views_uses_supplied_headers(monkeypatch) -> None:
 
     monkeypatch.setattr(tank_mod.tdt, "read_block", fake_read_block)
     monkeypatch.setattr(stores_mod.tdt, "read_block", fake_read_block)
+    monkeypatch.setattr(
+        launcher_mod, "build_annotation_source", lambda *a, **k: object()
+    )
     session = Session(
         block="blk",
         attachments={
@@ -162,6 +171,26 @@ def test_plan_views_missing_store_raises(monkeypatch) -> None:
     )
     with pytest.raises(KeyError, match="not present"):
         plan_views(Path("tank/blk"), session, load_config())
+
+
+def test_plan_views_always_appends_annotations(tmp_path, monkeypatch) -> None:
+    # Even a session with no store attachments gets exactly one encoder plan,
+    # and it creates the empty CSV under <block>/tdt_explore/.
+    from ephyviewer import CsvEpochSource
+
+    block_dir = tmp_path / "blk"
+    block_dir.mkdir()
+    monkeypatch.setattr(launcher_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(launcher_mod, "scan_block", lambda p, headers=None: [])
+
+    session = Session(block="blk")
+    plans = plan_views(block_dir, session, load_config())
+
+    assert len(plans) == 1
+    assert plans[-1].name == "annotations"
+    assert plans[-1].viewer_type == "epochencoder"
+    assert isinstance(plans[-1].source, CsvEpochSource)
+    assert (block_dir / "tdt_explore" / "annotations.csv").exists()
 
 
 # --- startup behavior: auto-scale + default trace color scheme (Qt-free via fakes) ---
@@ -283,9 +312,10 @@ def test_plan_views_includes_processed_sources(tmp_path, monkeypatch) -> None:
         )],
     )
     plans = plan_views(tmp_path / block, session, load_config())
-    assert len(plans) == 1
+    assert len(plans) == 2
     assert plans[0].name == "raw_data_mep:trace"
     assert plans[0].source.signals.shape == (2, 2)
+    assert plans[-1].viewer_type == "epochencoder"
 
 
 def test_plan_views_builds_blob_less_timeseries_with_sampling_rate_override(
@@ -322,9 +352,10 @@ def test_plan_views_builds_blob_less_timeseries_with_sampling_rate_override(
         )],
     )
     plans = plan_views(tmp_path / block, session, load_config())
-    assert len(plans) == 1
+    assert len(plans) == 2
     assert plans[0].name == "manual_ts:trace"
     assert plans[0].source.signals.shape == (2, 2)
+    assert plans[-1].viewer_type == "epochencoder"
 
 
 def test_plan_views_includes_impedance_sources(tmp_path, monkeypatch) -> None:
@@ -350,12 +381,13 @@ def test_plan_views_includes_impedance_sources(tmp_path, monkeypatch) -> None:
         )],
     )
     plans = plan_views(block_dir, session, load_config())
-    assert len(plans) == 1
+    assert len(plans) == 2
     assert plans[0].name == "spinal:impedance"
     assert plans[0].viewer_type == "impedance"
     assert plans[0].params["vmax"] == 300.0        # attachment override wins
     assert plans[0].params["cmap"] == "viridis"    # config default still merged in
     assert plans[0].source.frequencies == (1000.0, 5000.0)
+    assert plans[-1].viewer_type == "epochencoder"
 
 
 def test_plan_views_missing_impedance_file_raises(tmp_path, monkeypatch) -> None:

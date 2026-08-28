@@ -1,0 +1,6 @@
+# @package _global_
+# Writable epoch-encoder annotations, one CSV per block under tdt_explore/.
+annotations:
+  labels_path: annotations/labels.yaml   # package-relative -> resolved against CONFIG_DIR
+  filename: annotations.csv              # written under <block>/tdt_explore/
+  restrict_to_possible_labels: false     # keep labels found in an existing CSV
