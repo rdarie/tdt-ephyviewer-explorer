@@ -47,7 +47,7 @@ def test_load_config_has_impedance_viewer_defaults() -> None:
     assert cfg.viewers.impedance.vmin == 0.0
     assert cfg.viewers.impedance.vmax == 200.0
     assert cfg.viewers.impedance.annotate is True
-    assert cfg.viewers.impedance.annotation_format == "{:.0f}"
+    assert cfg.viewers.impedance.annotation_format == "R{channel}\n{impedance:.0f}"
     assert cfg.viewers.impedance.cmap == "viridis"
 
 
