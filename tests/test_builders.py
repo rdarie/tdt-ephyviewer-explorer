@@ -102,6 +102,54 @@ def test_build_event_source_ts_length_mismatch_raises() -> None:
         build_event_source(store, ["chanA"], GenericFormatter(["chanA"]), Attachment("eventlist"))
 
 
+def test_build_event_source_time_sort_orders_chronologically() -> None:
+    store = FakeScalar(data=np.array([[3.0, 1.0, 2.0]]), ts=np.array([3.0, 1.0, 2.0]))
+    cols = ["chanA"]
+    src = build_event_source(store, cols, GenericFormatter(cols), Attachment("eventlist"), sort="time")
+    ev = src.all[0]
+    assert list(ev["time"]) == [1.0, 2.0, 3.0]
+    assert list(ev["label"]) == ["chanA: 1.0", "chanA: 2.0", "chanA: 3.0"]
+
+
+def test_build_event_source_channel_sort_orders_by_chan_then_time() -> None:
+    # chanA row, chanB row; 4 events at ts 0..3.
+    store = FakeScalar(
+        data=np.array([[2.0, 1.0, 1.0, 2.0],   # chanA
+                       [1.0, 2.0, 1.0, 1.0]]),  # chanB
+        ts=np.array([0.0, 1.0, 2.0, 3.0]),
+    )
+    cols = ["chanA", "chanB"]
+    src = build_event_source(store, cols, GenericFormatter(cols), Attachment("eventlist"), sort="channel")
+    ev = src.all[0]
+    # (chanA,chanB,ts): (1,1,2)<(1,2,1)<(2,1,0)<(2,1,3)
+    assert list(ev["time"]) == [2.0, 1.0, 0.0, 3.0]
+
+
+def test_build_event_source_channel_sort_places_nan_channels_last() -> None:
+    store = FakeScalar(
+        data=np.array([[1.0, 1.0],          # chanA
+                       [np.nan, 2.0]]),      # chanB (event 0 unused)
+        ts=np.array([0.0, 1.0]),
+    )
+    cols = ["chanA", "chanB"]
+    src = build_event_source(store, cols, GenericFormatter(cols), Attachment("eventlist"), sort="channel")
+    ev = src.all[0]
+    assert list(ev["time"]) == [1.0, 0.0]  # real chanB before NaN chanB
+
+
+def test_build_event_source_channel_sort_falls_back_to_time_without_chan_columns() -> None:
+    store = FakeScalar(data=np.array([[3.0, 1.0, 2.0]]), ts=np.array([3.0, 1.0, 2.0]))
+    cols = ["ampA"]  # no chan-prefixed column
+    src = build_event_source(store, cols, GenericFormatter(cols), Attachment("eventlist"), sort="channel")
+    assert list(src.all[0]["time"]) == [1.0, 2.0, 3.0]
+
+
+def test_build_event_source_invalid_sort_raises() -> None:
+    store = FakeScalar(data=np.array([[5.0]]), ts=np.array([0.0]))
+    with pytest.raises(ValueError, match="sort"):
+        build_event_source(store, ["chanA"], GenericFormatter(["chanA"]), Attachment("eventlist"), sort="bogus")
+
+
 @_dc
 class FakeEpoc:
     onset: np.ndarray
@@ -162,9 +210,9 @@ from tdt_ephyviewer_explorer.builders import build_source_for
 from tdt_ephyviewer_explorer.stores import ResolvedStore, StoreInfo
 
 
-def _resolved(role, viewers, schema=None, formatter=None):
+def _resolved(role, viewers, schema=None, formatter=None, sort="time"):
     info = StoreInfo("X", "scalars", None, 1, None, 0.0, None)
-    return ResolvedStore(info, role, schema, viewers, formatter)
+    return ResolvedStore(info, role, schema, viewers, formatter, sort)
 
 
 def test_build_source_for_rejects_invalid_viewer() -> None:
@@ -196,6 +244,22 @@ def test_build_source_for_eventlist_with_schema_generic_formatter() -> None:
     store = FakeScalar(data=np.array([[5.0, 6.0]]), ts=np.array([0.0, 1.0]))
     src = build_source_for(resolved, Attachment("eventlist"), store, {"iz": ["chanA"]})
     assert src.all[0]["label"][0] == "chanA: 5.0"
+
+
+def test_build_source_for_eventlist_attachment_sort_overrides_role() -> None:
+    resolved = _resolved("stim", ("eventlist",), schema="iz", sort="time")
+    store = FakeScalar(data=np.array([[2.0, 1.0]]), ts=np.array([0.0, 1.0]))  # chanA row
+    attach = Attachment("eventlist")
+    attach.sort = "channel"
+    src = build_source_for(resolved, attach, store, {"iz": ["chanA"]})
+    assert list(src.all[0]["time"]) == [1.0, 0.0]  # chanA-ascending, not time order
+
+
+def test_build_source_for_eventlist_falls_back_to_role_sort() -> None:
+    resolved = _resolved("stim", ("eventlist",), schema="iz", sort="channel")
+    store = FakeScalar(data=np.array([[2.0, 1.0]]), ts=np.array([0.0, 1.0]))
+    src = build_source_for(resolved, Attachment("eventlist"), store, {"iz": ["chanA"]})
+    assert list(src.all[0]["time"]) == [1.0, 0.0]  # role sort used when attachment.sort is None
 
 
 def test_build_source_for_spiketrain_on_event() -> None:

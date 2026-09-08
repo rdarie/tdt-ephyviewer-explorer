@@ -58,12 +58,19 @@ def build_param_tree_spec(
             children.append(
                 {"name": "schema", "type": "str", "value": rs.schema, "readonly": True}
             )
-        viewer_children: list[dict] = [
-            {"name": vt, "type": "bool", "value": False, "children": _params_children(
-                viewer_defaults.get(vt, {})
-            )}
-            for vt in rs.viewers
-        ]
+        viewer_children: list[dict] = []
+        for vt in rs.viewers:
+            vchildren = _params_children(viewer_defaults.get(vt, {}))
+            if vt == "eventlist" and rs.role == "stim":
+                # Source-build option (not a widget param): surfaced/stripped in
+                # _enabled_attachments so it never reaches EventList.params.
+                vchildren.append(
+                    {"name": "sort", "type": "list",
+                     "limits": ["time", "channel"], "value": rs.sort}
+                )
+            viewer_children.append(
+                {"name": vt, "type": "bool", "value": False, "children": vchildren}
+            )
         children.append({"name": "Viewers", "type": "group", "children": viewer_children})
         groups.append({"name": rs.info.name, "type": "group", "children": children})
     return groups
@@ -217,15 +224,17 @@ def _enabled_attachments(state: dict) -> list[dict]:
     for vt, vstate in viewers.items():
         if not vstate.get("_enabled"):
             continue
-        params = {k: v for k, v in vstate.items() if k != "_enabled"}
-        entries.append(
-            {
-                "viewer_type": vt,
-                "delay_ms": float(state.get("delay_ms", 0.0)),
-                "probe_path": probe,
-                "params": params,
-            }
-        )
+        # `sort` is a source-build option, kept out of the widget param bag.
+        params = {k: v for k, v in vstate.items() if k not in ("_enabled", "sort")}
+        entry: dict = {
+            "viewer_type": vt,
+            "delay_ms": float(state.get("delay_ms", 0.0)),
+            "probe_path": probe,
+            "params": params,
+        }
+        if "sort" in vstate:
+            entry["sort"] = vstate["sort"]
+        entries.append(entry)
     return entries
 
 
@@ -616,7 +625,9 @@ class ControlWindow(QtWidgets.QWidget):
                         v.setValue(entry is not None)
                         if entry:
                             for p in v.children():
-                                if p.name() in entry["params"]:
+                                if p.name() == "sort" and "sort" in entry:
+                                    p.setValue(entry["sort"])
+                                elif p.name() in entry["params"]:
                                     p.setValue(entry["params"][p.name()])
                 elif child.name() == "delay_ms" and entries:
                     child.setValue(entries[0]["delay_ms"])

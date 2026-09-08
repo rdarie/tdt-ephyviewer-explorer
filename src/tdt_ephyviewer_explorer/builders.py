@@ -36,12 +36,15 @@ class Attachment:
     :param delay_ms: Milliseconds added to the store's start time (any store type).
     :param probe_path: Optional probe file for reorder (timeseries only).
     :param params: Viewer parameter overrides.
+    :param sort: Event-list ordering override (``"time"``/``"channel"``); ``None``
+        inherits the store's role/config default.
     """
 
     viewer_type: str
     delay_ms: float = 0.0
     probe_path: Path | None = None
     params: dict[str, Any] = field(default_factory=dict)
+    sort: str | None = None
 
 
 def apply_delay(t_start: float, delay_ms: float) -> float:
@@ -105,11 +108,41 @@ def scalar_rows(store: object, columns: Sequence[str]) -> list[dict[str, Any]]:
     ]
 
 
+def _event_sort_order(
+    rows: Sequence[dict[str, Any]], columns: Sequence[str], ts: np.ndarray, sort: str
+) -> np.ndarray:
+    """Compute the permutation that orders events for an event list.
+
+    ``"time"`` orders chronologically. ``"channel"`` orders by every chan-prefixed
+    schema column (in schema order), with time as the final tiebreaker; unused
+    (``NaN``) channels sort last at their level. With no chan-prefixed column,
+    ``"channel"`` degrades to time order.
+
+    :param rows: Per-event parameter dicts (one per event).
+    :param columns: Column schema, in order.
+    :param ts: Event timestamps (length matches ``rows``).
+    :param sort: ``"time"`` or ``"channel"``.
+    :returns: An index array reordering the events.
+    :raises ValueError: If ``sort`` is not a recognized option.
+    """
+    if sort == "time":
+        return np.argsort(ts, kind="stable")
+    if sort == "channel":
+        chan_cols = [c for c in columns if c.lower().startswith("chan")]
+        # np.lexsort takes keys least-significant first, so time first, chans reversed.
+        keys: list[np.ndarray] = [ts]
+        for col in reversed(chan_cols):
+            keys.append(np.array([float(r[col]) for r in rows], dtype=float))
+        return np.lexsort(keys)
+    raise ValueError(f"unknown event sort {sort!r}; expected 'time' or 'channel'")
+
+
 def build_event_source(
     store: object,
     columns: Sequence[str],
     formatter: StimFormatter,
     attachment: Attachment,
+    sort: str = "time",
 ) -> InMemoryEventSource:
     """Build an event source from a scalar store using ``formatter`` for labels.
 
@@ -117,7 +150,10 @@ def build_event_source(
     :param columns: Column schema for the param rows.
     :param formatter: Row-to-label formatter.
     :param attachment: Alignment options; ``delay_ms`` shifts every timestamp.
-    :raises ValueError: If the number of timestamps does not match the number of events.
+    :param sort: Event ordering, ``"time"`` or ``"channel"`` (see
+        :func:`_event_sort_order`).
+    :raises ValueError: If the number of timestamps does not match the number of
+        events, or if ``sort`` is not a recognized option.
     """
     rows = scalar_rows(store, columns)
     ts = np.asarray(store.ts, dtype=float)  # type: ignore[attr-defined]
@@ -125,8 +161,10 @@ def build_event_source(
         raise ValueError(
             f"store has {ts.shape[0]} timestamps but {len(rows)} events"
         )
-    labels = np.array([formatter.format_row(r) for r in rows])
     ts = ts + attachment.delay_ms / 1000.0
+    order = _event_sort_order(rows, columns, ts, sort)
+    ts = ts[order]
+    labels = np.array([formatter.format_row(rows[i]) for i in order])
     return InMemoryEventSource(
         all_events=[{"name": attachment.viewer_type, "time": ts, "label": labels}]
     )
@@ -296,4 +334,6 @@ def build_source_for(
         n_params = 1 if data.ndim == 1 else data.shape[0]
         columns = [f"col{p:0>2d}" for p in range(n_params)]
     formatter = instantiate(resolved.formatter) if resolved.formatter else GenericFormatter(columns)
-    return build_event_source(store, columns, formatter, attachment)
+    return build_event_source(
+        store, columns, formatter, attachment, sort=attachment.sort or resolved.sort
+    )

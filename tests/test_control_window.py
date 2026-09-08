@@ -30,6 +30,38 @@ def test_build_param_tree_spec_omits_probe_for_events() -> None:
     assert "probe_file" not in child_names
 
 
+def _stim_resolved(name: str, sort: str = "time") -> ResolvedStore:
+    info = StoreInfo(name, "scalars", None, 1, None, 0.0, None)
+    return ResolvedStore(info, "stim", "iz_param_names", ("eventlist", "spiketrain"), None, sort)
+
+
+def test_build_param_tree_spec_adds_sort_dropdown_under_stim_eventlist() -> None:
+    spec = build_param_tree_spec(
+        [_stim_resolved("eS1p", sort="channel")], {"eventlist": {}, "spiketrain": {}}
+    )
+    viewers = next(c for c in spec[0]["children"] if c["name"] == "Viewers")
+    eventlist = next(c for c in viewers["children"] if c["name"] == "eventlist")
+    sort_child = next(c for c in eventlist["children"] if c["name"] == "sort")
+    assert sort_child["type"] == "list"
+    assert list(sort_child["limits"]) == ["time", "channel"]
+    assert sort_child["value"] == "channel"  # seeded from the role default
+    # spiketrain gets no sort control
+    spiketrain = next(c for c in viewers["children"] if c["name"] == "spiketrain")
+    assert "sort" not in {c["name"] for c in spiketrain["children"]}
+
+
+def test_enabled_attachments_surfaces_sort_out_of_params() -> None:
+    from tdt_ephyviewer_explorer.control_window import _enabled_attachments
+
+    state = {
+        "delay_ms": 0.0,
+        "Viewers": {"eventlist": {"_enabled": True, "sort": "channel"}},
+    }
+    entry = _enabled_attachments(state)[0]
+    assert entry["sort"] == "channel"
+    assert "sort" not in entry["params"]  # never reaches the widget param bag
+
+
 def test_spec_to_session_includes_only_enabled() -> None:
     from tdt_ephyviewer_explorer.control_window import spec_to_session
 
@@ -92,6 +124,40 @@ def test_apply_session_round_trip_restores_viewers_delay_probe(qapp, monkeypatch
     assert entry["viewer_type"] == "trace"
     assert entry["delay_ms"] == 12.0
     assert entry["probe_path"] == "C:/probes/p.json"  # reorder+probe restored on load
+
+
+def test_apply_session_round_trip_restores_eventlist_sort(qapp, monkeypatch) -> None:
+    from pathlib import Path
+
+    from tdt_ephyviewer_explorer import control_window as cw_mod
+    from tdt_ephyviewer_explorer.control_window import ControlWindow, spec_to_session
+    from tdt_ephyviewer_explorer.config_schema import load_config
+    from tdt_ephyviewer_explorer.session import Session
+    from tdt_ephyviewer_explorer.stores import StoreInfo
+
+    monkeypatch.setattr(cw_mod, "read_headers", lambda p: None)
+    monkeypatch.setattr(
+        cw_mod,
+        "scan_block",
+        lambda p, headers=None: [StoreInfo("eS1p", "scalars", None, 1, None, 0.0, None)],
+    )
+    cw = ControlWindow(load_config())
+    cw.set_block(Path("blk"))
+
+    session = Session(
+        block="blk",
+        attachments={
+            "eS1p": [
+                {"viewer_type": "eventlist", "delay_ms": 0.0,
+                 "probe_path": None, "params": {}, "sort": "channel"}
+            ]
+        },
+    )
+    cw._apply_session(session)
+    round_tripped = spec_to_session("blk", cw._read_state())
+    entry = round_tripped.attachments["eS1p"][0]
+    assert entry["viewer_type"] == "eventlist"
+    assert entry["sort"] == "channel"
 
 
 def test_set_block_exposes_parsed_headers(qapp, monkeypatch) -> None:

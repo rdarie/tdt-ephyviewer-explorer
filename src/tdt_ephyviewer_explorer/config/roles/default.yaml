@@ -9,5 +9,6 @@ roles:
     role: stim
     schema: iz_param_names
     viewers: [eventlist, spiketrain]
+    sort: time                  # eventlist order: time | channel (chanA, chanB, ..., then time)
     formatter:
       _target_: tdt_ephyviewer_explorer.formatters.iz_voice.IZVoiceFormatter

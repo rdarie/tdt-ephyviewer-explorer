@@ -69,6 +69,25 @@ def test_resolve_role_falls_back_to_tdt_type() -> None:
     resolved = resolve_role(_info("Wav1", "streams"), [])
     assert resolved.role == "timeseries"
     assert resolved.viewers == ("trace", "timefreq", "spectrogram")
+    assert resolved.sort == "time"  # default for unmatched stores
+
+
+def test_resolve_role_carries_sort_from_rule() -> None:
+    rules = [RoleRule("eS?p", "stim", "iz_param_names", ("eventlist",), None, "channel")]
+    resolved = resolve_role(_info("eS1p", "scalars"), rules)
+    assert resolved.sort == "channel"
+
+
+def test_resolve_role_defaults_sort_to_time() -> None:
+    rules = [RoleRule("eS?p", "stim", "iz_param_names", ("eventlist",))]
+    resolved = resolve_role(_info("eS1p", "scalars"), rules)
+    assert resolved.sort == "time"
+
+
+def test_rules_from_config_reads_sort() -> None:
+    rules = rules_from_config(load_config())
+    stim = next(r for r in rules if r.role == "stim")
+    assert stim.sort in ("time", "channel")
 
 
 def test_rules_from_config_reads_packaged_rules() -> None:

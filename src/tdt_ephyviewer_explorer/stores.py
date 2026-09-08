@@ -90,6 +90,8 @@ class RoleRule:
     :param schema: Named column schema, or ``None``.
     :param viewers: Allowed viewer types; empty means use the role default.
     :param formatter: Hydra ``_target_`` spec for a stim formatter, or ``None``.
+    :param sort: Event-list ordering: ``"time"`` (chronological) or ``"channel"``
+        (by chan-prefixed schema columns, then time).
     """
 
     pattern: str
@@ -97,6 +99,7 @@ class RoleRule:
     schema: str | None = None
     viewers: tuple[str, ...] = ()
     formatter: dict[str, Any] | None = None
+    sort: str = "time"
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,7 @@ class ResolvedStore:
     schema: str | None
     viewers: tuple[str, ...]
     formatter: dict[str, Any] | None
+    sort: str = "time"
 
 
 def rules_from_config(cfg: Any) -> list[RoleRule]:
@@ -121,6 +125,7 @@ def rules_from_config(cfg: Any) -> list[RoleRule]:
                 schema=str(r.schema) if r.get("schema") is not None else None,
                 viewers=tuple(r.get("viewers") or ()),
                 formatter=dict(r.formatter) if r.get("formatter") is not None else None,
+                sort=str(r.get("sort") or "time"),
             )
         )
     return rules
@@ -137,7 +142,7 @@ def resolve_role(info: StoreInfo, rules: Sequence[RoleRule]) -> ResolvedStore:
     for rule in rules:
         if fnmatchcase(info.name, rule.pattern):
             viewers = rule.viewers or VALID_VIEWERS[rule.role]
-            return ResolvedStore(info, rule.role, rule.schema, viewers, rule.formatter)
+            return ResolvedStore(info, rule.role, rule.schema, viewers, rule.formatter, rule.sort)
     role = TDT_TYPE_TO_ROLE[info.tdt_type]
     return ResolvedStore(info, role, None, VALID_VIEWERS[role], None)
 

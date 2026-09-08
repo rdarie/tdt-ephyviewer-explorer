@@ -53,6 +53,7 @@ def _attachment_from_dict(d: dict[str, Any]) -> Attachment:
         delay_ms=float(d.get("delay_ms", 0.0)),
         probe_path=Path(probe) if probe else None,
         params=dict(d.get("params", {})),
+        sort=d.get("sort"),
     )
 
 
